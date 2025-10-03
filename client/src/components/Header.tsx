@@ -13,6 +13,13 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
       <div className="max-w-full mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
+            <a 
+              href="mailto:contact@zhisystems.ai" 
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              data-testid="link-contact"
+            >
+              Contact Us
+            </a>
             <h1 className="text-2xl font-bold text-gray-900">GPT Bypass</h1>
             <span className="text-sm text-gray-500 font-medium">AI Text Rewriter</span>
           </div>
