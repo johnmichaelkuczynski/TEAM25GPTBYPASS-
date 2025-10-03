@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
-import { LogOut, User, FolderOpen } from "lucide-react";
+import { LogOut, User, FolderOpen, Coins } from "lucide-react";
+import { Link } from "wouter";
 import UserDashboard from "./UserDashboard";
 
 interface HeaderProps {
@@ -70,6 +71,15 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
             
             {user ? (
               <div className="flex items-center space-x-2">
+                <Link href="/pricing">
+                  <div className="flex items-center bg-blue-50 border border-blue-200 rounded-md px-3 py-1 cursor-pointer hover:bg-blue-100 transition-colors" data-testid="credit-display">
+                    <Coins className="h-4 w-4 mr-1 text-blue-600" />
+                    <span className="text-sm font-semibold text-blue-700" data-testid="text-credits">
+                      {user.credits?.toLocaleString() || 0}
+                    </span>
+                    <span className="text-xs text-blue-500 ml-1">credits</span>
+                  </div>
+                </Link>
                 <span className="text-sm text-gray-700" data-testid="text-username">
                   <User className="inline h-4 w-4 mr-1" />
                   {user.username}
