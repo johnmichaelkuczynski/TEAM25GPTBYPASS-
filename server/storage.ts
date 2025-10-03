@@ -1,6 +1,7 @@
 import { type User, type Document, type RewriteJob, type InsertUser, type InsertDocument, type InsertRewriteJob } from "@shared/schema";
 import { randomUUID } from "crypto";
 import session from "express-session";
+import type { Store } from "express-session";
 
 export interface IStorage {
   // User operations
@@ -9,19 +10,19 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   
   // Document operations
-  createDocument(document: InsertDocument): Promise<Document>;
+  createDocument(document: InsertDocument & { userId?: string | null }): Promise<Document>;
   getDocument(id: string): Promise<Document | undefined>;
   getUserDocuments(userId: string): Promise<Document[]>;
   
   // Rewrite job operations
-  createRewriteJob(job: InsertRewriteJob): Promise<RewriteJob>;
+  createRewriteJob(job: InsertRewriteJob & { userId?: string | null }): Promise<RewriteJob>;
   getRewriteJob(id: string): Promise<RewriteJob | undefined>;
   updateRewriteJob(id: string, updates: Partial<RewriteJob>): Promise<RewriteJob>;
   listRewriteJobs(): Promise<RewriteJob[]>;
   getUserRewriteJobs(userId: string): Promise<RewriteJob[]>;
   
   // Session store
-  sessionStore: session.SessionStore;
+  sessionStore: Store;
 }
 
 import { db } from "./db";
@@ -33,7 +34,7 @@ import connectPg from "connect-pg-simple";
 const PostgresSessionStore = connectPg(session);
 
 export class DatabaseStorage implements IStorage {
-  sessionStore: session.SessionStore;
+  sessionStore: Store;
 
   constructor() {
     this.sessionStore = new PostgresSessionStore({ 
@@ -58,7 +59,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Document operations
-  async createDocument(insertDocument: InsertDocument): Promise<Document> {
+  async createDocument(insertDocument: InsertDocument & { userId?: string | null }): Promise<Document> {
     const [document] = await db.insert(documents).values(insertDocument).returning();
     return document;
   }
@@ -73,7 +74,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Rewrite job operations
-  async createRewriteJob(insertJob: InsertRewriteJob): Promise<RewriteJob> {
+  async createRewriteJob(insertJob: InsertRewriteJob & { userId?: string | null }): Promise<RewriteJob> {
     const [job] = await db.insert(rewriteJobs).values(insertJob).returning();
     return job;
   }
