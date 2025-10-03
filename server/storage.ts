@@ -1,5 +1,6 @@
 import { type User, type Document, type RewriteJob, type InsertUser, type InsertDocument, type InsertRewriteJob } from "@shared/schema";
 import { randomUUID } from "crypto";
+import session from "express-session";
 
 export interface IStorage {
   // User operations
@@ -18,13 +19,28 @@ export interface IStorage {
   updateRewriteJob(id: string, updates: Partial<RewriteJob>): Promise<RewriteJob>;
   listRewriteJobs(): Promise<RewriteJob[]>;
   getUserRewriteJobs(userId: string): Promise<RewriteJob[]>;
+  
+  // Session store
+  sessionStore: session.SessionStore;
 }
 
 import { db } from "./db";
 import { users, documents, rewriteJobs } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import { pool } from "./db";
+import connectPg from "connect-pg-simple";
+
+const PostgresSessionStore = connectPg(session);
 
 export class DatabaseStorage implements IStorage {
+  sessionStore: session.SessionStore;
+
+  constructor() {
+    this.sessionStore = new PostgresSessionStore({ 
+      pool, 
+      createTableIfMissing: true 
+    });
+  }
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));

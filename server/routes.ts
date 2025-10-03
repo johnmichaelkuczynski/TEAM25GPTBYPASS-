@@ -9,6 +9,7 @@ import { aiProviderService } from "./services/aiProviders";
 import { documentGeneratorService } from "./services/documentGenerator";
 import { insertDocumentSchema, insertRewriteJobSchema, type RewriteRequest, type RewriteResponse } from "@shared/schema";
 import { z } from "zod";
+import { setupAuth } from "./auth";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -40,6 +41,8 @@ function cleanMarkup(text: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  setupAuth(app);
+
   // File upload endpoint
   app.post("/api/upload", upload.single('file'), async (req, res) => {
     try {
