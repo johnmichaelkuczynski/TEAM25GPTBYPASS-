@@ -148,6 +148,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Input text and provider are required" });
       }
 
+      // Calculate word count for credit deduction
+      const wordCount = rewriteRequest.inputText.trim().split(/\s+/).length;
+      
+      // Check and deduct credits if user is logged in
+      if (req.user) {
+        try {
+          await storage.deductUserCredits(req.user.id, wordCount);
+        } catch (error: any) {
+          return res.status(402).json({ message: error.message });
+        }
+      }
+
       // Analyze input text
       const inputAnalysis = await gptZeroService.analyzeText(rewriteRequest.inputText);
       
@@ -198,6 +210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           jobId: rewriteJob.id,
         };
 
+        // Invalidate user query to update credits display
         res.json(response);
       } catch (error) {
         // Update job with error status

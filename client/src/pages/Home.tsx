@@ -93,6 +93,7 @@ export default function Home() {
       setOutputText(data.rewrittenText);
       setOutputAiScore(data.outputAiScore);
       setLastJobId(data.jobId);
+      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       toast({
         title: "Rewrite Complete",
         description: `AI detection reduced from ${data.inputAiScore}% to ${data.outputAiScore}%`,
