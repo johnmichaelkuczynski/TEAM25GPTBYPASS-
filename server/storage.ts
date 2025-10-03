@@ -8,6 +8,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserCredits(userId: string, credits: number): Promise<User>;
+  deductUserCredits(userId: string, amount: number): Promise<User>;
+  updateStripeCustomerId(userId: string, stripeCustomerId: string): Promise<User>;
   
   // Document operations
   createDocument(document: InsertDocument & { userId?: string | null }): Promise<Document>;
@@ -98,6 +101,34 @@ export class DatabaseStorage implements IStorage {
 
   async getUserRewriteJobs(userId: string): Promise<RewriteJob[]> {
     return await db.select().from(rewriteJobs).where(eq(rewriteJobs.userId, userId)).orderBy(desc(rewriteJobs.createdAt));
+  }
+
+  async updateUserCredits(userId: string, credits: number): Promise<User> {
+    const [user] = await db.update(users).set({ credits }).where(eq(users.id, userId)).returning();
+    if (!user) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+    return user;
+  }
+
+  async deductUserCredits(userId: string, amount: number): Promise<User> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+    if (user.credits < amount) {
+      throw new Error(`Insufficient credits. Required: ${amount}, Available: ${user.credits}`);
+    }
+    const newCredits = user.credits - amount;
+    return await this.updateUserCredits(userId, newCredits);
+  }
+
+  async updateStripeCustomerId(userId: string, stripeCustomerId: string): Promise<User> {
+    const [user] = await db.update(users).set({ stripeCustomerId }).where(eq(users.id, userId)).returning();
+    if (!user) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+    return user;
   }
 }
 

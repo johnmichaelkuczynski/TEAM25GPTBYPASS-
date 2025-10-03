@@ -7,9 +7,17 @@ import { textChunkerService } from "./services/textChunker";
 import { gptZeroService } from "./services/gptZero";
 import { aiProviderService } from "./services/aiProviders";
 import { documentGeneratorService } from "./services/documentGenerator";
-import { insertDocumentSchema, insertRewriteJobSchema, type RewriteRequest, type RewriteResponse } from "@shared/schema";
+import { insertDocumentSchema, insertRewriteJobSchema, type RewriteRequest, type RewriteResponse, pricingTiers } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth } from "./auth";
+import Stripe from "stripe";
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
+}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2024-12-18.acacia",
+});
 
 // Configure multer for file uploads
 const upload = multer({
@@ -496,6 +504,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Get materials error:', error);
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // Get pricing tiers
+  app.get("/api/pricing", (req, res) => {
+    res.json(pricingTiers);
+  });
+
+  // Create Stripe payment intent
+  app.post("/api/create-payment-intent", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { tierId } = req.body;
+      const tier = pricingTiers.find(t => t.id === tierId);
+
+      if (!tier) {
+        return res.status(400).json({ message: "Invalid pricing tier" });
+      }
+
+      let stripeCustomerId = req.user.stripeCustomerId;
+      
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          metadata: {
+            userId: req.user.id,
+            username: req.user.username,
+          },
+        });
+        stripeCustomerId = customer.id;
+        await storage.updateStripeCustomerId(req.user.id, stripeCustomerId);
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: tier.priceUsd * 100,
+        currency: "usd",
+        customer: stripeCustomerId,
+        metadata: {
+          userId: req.user.id,
+          tierId: tier.id,
+          credits: tier.credits.toString(),
+        },
+      });
+
+      res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (error: any) {
+      console.error('Payment intent error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe webhook handler
+  app.post("/api/webhooks/stripe", async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    
+    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(400).send('Webhook signature missing');
+    }
+
+    let event: Stripe.Event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err: any) {
+      console.error('Webhook signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'payment_intent.succeeded') {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const { userId, credits } = paymentIntent.metadata;
+
+      if (userId && credits) {
+        try {
+          const user = await storage.getUser(userId);
+          if (user) {
+            const newCredits = user.credits + parseInt(credits);
+            await storage.updateUserCredits(userId, newCredits);
+            console.log(`Added ${credits} credits to user ${userId}. New balance: ${newCredits}`);
+          }
+        } catch (error: any) {
+          console.error('Error updating credits:', error);
+        }
+      }
+    }
+
+    res.json({ received: true });
   });
 
   const httpServer = createServer(app);
