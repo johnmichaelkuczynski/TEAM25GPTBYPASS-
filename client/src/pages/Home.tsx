@@ -10,7 +10,7 @@ import ChatInterface from "@/components/ChatInterface";
 import ApiKeyManager from "@/components/ApiKeyManager";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { writingSamples } from "@/lib/writingSamples";
 import type { TextChunk, RewriteRequest, RewriteResponse } from "@shared/schema";
 

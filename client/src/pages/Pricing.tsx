@@ -103,7 +103,10 @@ export default function Pricing() {
     setSelectedTier(tier);
     
     try {
-      const data = await apiRequest("POST", "/api/create-payment-intent", { tierId: tier.id });
+      const data = await apiRequest("/api/create-payment-intent", {
+        method: "POST",
+        body: { tierId: tier.id }
+      });
       setClientSecret(data.clientSecret);
       setCheckoutOpen(true);
     } catch (error: any) {
