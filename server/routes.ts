@@ -476,6 +476,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user's saved materials
+  app.get("/api/user/materials", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const [documents, rewriteJobs] = await Promise.all([
+        storage.getUserDocuments(req.user.id),
+        storage.getUserRewriteJobs(req.user.id)
+      ]);
+
+      res.json({
+        documents,
+        rewriteJobs
+      });
+    } catch (error: any) {
+      console.error('Get materials error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

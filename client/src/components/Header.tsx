@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, FolderOpen } from "lucide-react";
+import UserDashboard from "./UserDashboard";
 
 interface HeaderProps {
   provider: string;
@@ -17,6 +18,7 @@ interface HeaderProps {
 export default function Header({ provider, onProviderChange, onShowApiKeys }: HeaderProps) {
   const { user, loginMutation, registerMutation, logoutMutation } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [registerData, setRegisterData] = useState({ username: "", password: "" });
 
@@ -72,6 +74,23 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
                   <User className="inline h-4 w-4 mr-1" />
                   {user.username}
                 </span>
+                <Dialog open={dashboardOpen} onOpenChange={setDashboardOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" data-testid="button-dashboard">
+                      <FolderOpen className="h-4 w-4 mr-1" />
+                      My Materials
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+                    <DialogHeader>
+                      <DialogTitle>My Saved Materials</DialogTitle>
+                      <DialogDescription>
+                        View your saved documents and rewrite jobs
+                      </DialogDescription>
+                    </DialogHeader>
+                    <UserDashboard />
+                  </DialogContent>
+                </Dialog>
                 <Button
                   variant="outline"
                   size="sm"
