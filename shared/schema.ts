@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, integer, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -11,6 +11,7 @@ export const users = pgTable("users", {
 
 export const documents = pgTable("documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
   filename: text("filename").notNull(),
   content: text("content").notNull(),
   wordCount: integer("word_count").notNull(),
@@ -20,6 +21,7 @@ export const documents = pgTable("documents", {
 
 export const rewriteJobs = pgTable("rewrite_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
   inputText: text("input_text").notNull(),
   styleText: text("style_text"),
   contentMixText: text("content_mix_text"),
@@ -36,6 +38,25 @@ export const rewriteJobs = pgTable("rewrite_jobs", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
+export const usersRelations = relations(users, ({ many }) => ({
+  documents: many(documents),
+  rewriteJobs: many(rewriteJobs),
+}));
+
+export const documentsRelations = relations(documents, ({ one }) => ({
+  user: one(users, {
+    fields: [documents.userId],
+    references: [users.id],
+  }),
+}));
+
+export const rewriteJobsRelations = relations(rewriteJobs, ({ one }) => ({
+  user: one(users, {
+    fields: [rewriteJobs.userId],
+    references: [users.id],
+  }),
+}));
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -43,11 +64,13 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export const insertDocumentSchema = createInsertSchema(documents).omit({
   id: true,
+  userId: true,
   createdAt: true,
 });
 
 export const insertRewriteJobSchema = createInsertSchema(rewriteJobs).omit({
   id: true,
+  userId: true,
   createdAt: true,
 });
 
