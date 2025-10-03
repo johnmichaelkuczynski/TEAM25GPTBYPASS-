@@ -6,6 +6,18 @@ GPT Bypass is a comprehensive AI text rewriting application designed to transfor
 
 ## Recent Changes (January 2025)
 
+**User Authentication & Persistence System (October 3, 2025)**
+- Implemented complete optional authentication system - site remains fully accessible to guest users
+- **Database Setup**: PostgreSQL database with Drizzle ORM, migrated from memory storage to persistent storage
+- **Secure Authentication**: Passport.js integration with scrypt password hashing, session management, and secure cookie handling
+- **Auth Endpoints**: Registration, login, logout with proper validation using Zod schemas and JSON error responses
+- **Security Hardening**: All user responses sanitized to exclude hashed passwords, request validation on all auth routes
+- **Frontend Integration**: Login/register UI in header with AuthProvider hook, seamless user experience
+- **User Dashboard**: View saved materials (documents and rewrite jobs) when logged in at /dashboard route
+- **Material Persistence**: Documents and rewrite jobs automatically save with userId when user is authenticated
+- **Guest Access**: Full application functionality available without login - authentication is optional enhancement
+- **Session Management**: Express-session with PostgreSQL store (connect-pg-simple) for production-ready session persistence
+
 **GPTZero Integration Fixed (October 2, 2025)**
 - Successfully updated GPTZero API key with proper authentication
 - Confirmed API integration working with 32-character key format
@@ -53,15 +65,18 @@ Preferred communication style: Simple, everyday language.
 - **Form Handling**: React Hook Form with Zod validation for type-safe form management
 
 ### Backend Architecture
-- **Express.js API**: RESTful API server handling file uploads, text processing, and AI provider integrations
+- **Express.js API**: RESTful API server handling file uploads, text processing, AI provider integrations, and user authentication
+- **Authentication**: Passport.js with local strategy, scrypt password hashing, and session-based authentication
 - **File Processing**: Multer-based file upload system supporting TXT, PDF, DOC/DOCX formats up to 50MB
 - **Service Layer Pattern**: Modular services for file processing, text chunking, GPTZero integration, and AI provider management
-- **Memory Storage**: In-memory storage implementation with interface design for easy database migration
-- **Middleware Stack**: Request logging, JSON parsing, and error handling middleware
+- **Database Storage**: PostgreSQL with Drizzle ORM for persistent user data and generated materials storage
+- **Middleware Stack**: Session management, request logging, JSON parsing, authentication, and error handling middleware
 
 ### Data Architecture
-- **Drizzle ORM**: Type-safe database toolkit with PostgreSQL support (configured but using memory storage currently)
-- **Schema Design**: Well-defined schemas for users, documents, and rewrite jobs with proper relationships
+- **Drizzle ORM**: Type-safe database toolkit with active PostgreSQL integration for persistent storage
+- **Schema Design**: Well-defined schemas for users (with authentication), documents, and rewrite jobs with proper relationships
+- **User Data**: Secure storage of user credentials with hashed passwords, session data persisted to database
+- **Material Storage**: Documents and rewrite jobs linked to user accounts via foreign keys for authenticated users
 - **Text Chunking**: Intelligent text segmentation for large documents (>500 words) with configurable overlap
 - **Job Management**: Async rewrite job processing with status tracking and result storage
 
