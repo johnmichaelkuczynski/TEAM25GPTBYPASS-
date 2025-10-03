@@ -56,12 +56,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Analyze with GPTZero
       const gptZeroResult = await gptZeroService.analyzeText(processedFile.content);
       
-      // Create document record
+      // Create document record (save with userId if logged in)
       const document = await storage.createDocument({
         filename: processedFile.filename,
         content: processedFile.content,
         wordCount: processedFile.wordCount,
         aiScore: gptZeroResult.aiScore,
+        userId: req.user?.id,
       });
 
       // Generate chunks if text is long enough
@@ -142,7 +143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Analyze input text
       const inputAnalysis = await gptZeroService.analyzeText(rewriteRequest.inputText);
       
-      // Create rewrite job
+      // Create rewrite job (save with userId if logged in)
       const rewriteJob = await storage.createRewriteJob({
         inputText: rewriteRequest.inputText,
         styleText: rewriteRequest.styleText,
@@ -155,6 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mixingMode: rewriteRequest.mixingMode,
         inputAiScore: inputAnalysis.aiScore,
         status: "processing",
+        userId: req.user?.id,
       });
 
       try {
@@ -213,9 +215,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Original job not found or incomplete" });
       }
 
-      // Create new rewrite job using the previous output as input
+      // Create new rewrite job using the previous output as input (save with userId if logged in)
       const rewriteJob = await storage.createRewriteJob({
         inputText: originalJob.outputText,
+        userId: req.user?.id,
         styleText: originalJob.styleText,
         contentMixText: originalJob.contentMixText,
         customInstructions: customInstructions || originalJob.customInstructions,
