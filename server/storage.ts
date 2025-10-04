@@ -1,4 +1,4 @@
-import { type User, type Document, type RewriteJob, type InsertUser, type InsertDocument, type InsertRewriteJob } from "@shared/schema";
+import { type User, type Document, type RewriteJob, type Payment, type InsertUser, type InsertDocument, type InsertRewriteJob } from "@shared/schema";
 import { randomUUID } from "crypto";
 import session from "express-session";
 import type { Store } from "express-session";
@@ -9,6 +9,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserCredits(userId: string, credits: number): Promise<User>;
+  incrementUserCredits(userId: string, creditsToAdd: number): Promise<User>;
   deductUserCredits(userId: string, amount: number): Promise<User>;
   updateStripeCustomerId(userId: string, stripeCustomerId: string): Promise<User>;
   
@@ -24,13 +25,18 @@ export interface IStorage {
   listRewriteJobs(): Promise<RewriteJob[]>;
   getUserRewriteJobs(userId: string): Promise<RewriteJob[]>;
   
+  // Payment operations
+  getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined>;
+  createPayment(payment: { stripePaymentIntentId: string; userId: string; credits: number; amount: number; status: string }): Promise<Payment>;
+  processPaymentWithCredits(payment: { stripePaymentIntentId: string; userId: string; credits: number; amount: number; status: string }): Promise<{ payment: Payment; user: User }>;
+  
   // Session store
   sessionStore: Store;
 }
 
 import { db } from "./db";
-import { users, documents, rewriteJobs } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { users, documents, rewriteJobs, payments } from "@shared/schema";
+import { eq, desc, sql } from "drizzle-orm";
 import { pool } from "./db";
 import connectPg from "connect-pg-simple";
 
@@ -111,6 +117,17 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async incrementUserCredits(userId: string, creditsToAdd: number): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ credits: sql`${users.credits} + ${creditsToAdd}` })
+      .where(eq(users.id, userId))
+      .returning();
+    if (!user) {
+      throw new Error(`User with id ${userId} not found`);
+    }
+    return user;
+  }
+
   async deductUserCredits(userId: string, amount: number): Promise<User> {
     const user = await this.getUser(userId);
     if (!user) {
@@ -129,6 +146,35 @@ export class DatabaseStorage implements IStorage {
       throw new Error(`User with id ${userId} not found`);
     }
     return user;
+  }
+
+  async getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(eq(payments.stripePaymentIntentId, stripePaymentIntentId));
+    return payment || undefined;
+  }
+
+  async createPayment(payment: { stripePaymentIntentId: string; userId: string; credits: number; amount: number; status: string }): Promise<Payment> {
+    const [newPayment] = await db.insert(payments).values(payment).returning();
+    return newPayment;
+  }
+
+  async processPaymentWithCredits(payment: { stripePaymentIntentId: string; userId: string; credits: number; amount: number; status: string }): Promise<{ payment: Payment; user: User }> {
+    return await db.transaction(async (tx) => {
+      // Insert payment record first - unique constraint blocks duplicates
+      const [newPayment] = await tx.insert(payments).values(payment).returning();
+      
+      // Atomically increment credits
+      const [updatedUser] = await tx.update(users)
+        .set({ credits: sql`${users.credits} + ${payment.credits}` })
+        .where(eq(users.id, payment.userId))
+        .returning();
+      
+      if (!updatedUser) {
+        throw new Error(`User with id ${payment.userId} not found`);
+      }
+      
+      return { payment: newPayment, user: updatedUser };
+    });
   }
 }
 

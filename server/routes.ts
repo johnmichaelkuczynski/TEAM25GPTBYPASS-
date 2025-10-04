@@ -606,6 +606,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Payment Intent ID:', paymentIntentId);
       console.log('User:', req.user.id);
 
+      // Check if payment already processed (idempotency)
+      const existingPayment = await storage.getPaymentByStripeId(paymentIntentId);
+      if (existingPayment) {
+        console.log('Payment already processed, returning existing credits');
+        const user = await storage.getUser(req.user.id);
+        return res.json({
+          success: true,
+          creditsAdded: existingPayment.credits,
+          newBalance: user?.credits || 0,
+          alreadyProcessed: true
+        });
+      }
+
       // Retrieve payment intent from Stripe to verify it succeeded
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
       
@@ -627,22 +640,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No credits amount in payment metadata" });
       }
 
-      // Add credits to user
-      const user = await storage.getUser(req.user.id);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
+      // Process payment and add credits atomically in a transaction
+      try {
+        const result = await storage.processPaymentWithCredits({
+          stripePaymentIntentId: paymentIntentId,
+          userId: req.user.id,
+          credits,
+          amount: paymentIntent.amount,
+          status: 'succeeded'
+        });
+
+        console.log(`✅ Payment processed: added ${credits} credits to user ${req.user.id}. New balance: ${result.user.credits}`);
+
+        res.json({ 
+          success: true, 
+          creditsAdded: credits,
+          newBalance: result.user.credits
+        });
+      } catch (error: any) {
+        // If this fails due to unique constraint, payment was already processed
+        if (error.message?.includes('unique') || error.code === '23505') {
+          console.log('Payment already processed by concurrent request');
+          const user = await storage.getUser(req.user.id);
+          return res.json({
+            success: true,
+            creditsAdded: credits,
+            newBalance: user?.credits || 0,
+            alreadyProcessed: true
+          });
+        }
+        throw error;
       }
-
-      const newCredits = user.credits + credits;
-      await storage.updateUserCredits(req.user.id, newCredits);
-      
-      console.log(`✅ Added ${credits} credits to user ${req.user.id}. New balance: ${newCredits}`);
-
-      res.json({ 
-        success: true, 
-        creditsAdded: credits,
-        newBalance: newCredits
-      });
     } catch (error: any) {
       console.error('Payment verification error:', error);
       res.status(500).json({ message: error.message });
@@ -681,13 +709,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (userId && credits) {
         try {
-          const user = await storage.getUser(userId);
-          if (user) {
-            const newCredits = user.credits + parseInt(credits);
-            await storage.updateUserCredits(userId, newCredits);
-            console.log(`✅ Added ${credits} credits to user ${userId}. New balance: ${newCredits}`);
-          } else {
-            console.log('User not found:', userId);
+          // Check if payment already processed (idempotency)
+          const existingPayment = await storage.getPaymentByStripeId(paymentIntent.id);
+          if (existingPayment) {
+            console.log('Payment already processed by webhook, skipping');
+            return res.json({ received: true, alreadyProcessed: true });
+          }
+
+          // Process payment and add credits atomically in a transaction
+          try {
+            const result = await storage.processPaymentWithCredits({
+              stripePaymentIntentId: paymentIntent.id,
+              userId,
+              credits: parseInt(credits),
+              amount: paymentIntent.amount,
+              status: 'succeeded'
+            });
+            console.log(`✅ Webhook processed: added ${credits} credits to user ${userId}. New balance: ${result.user.credits}`);
+          } catch (error: any) {
+            if (error.message?.includes('unique') || error.code === '23505') {
+              console.log('Payment already processed by concurrent request (webhook)');
+            } else {
+              console.log('Error processing payment:', error.message);
+            }
           }
         } catch (error: any) {
           console.error('Error updating credits:', error);

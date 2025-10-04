@@ -40,9 +40,20 @@ export const rewriteJobs = pgTable("rewrite_jobs", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stripePaymentIntentId: text("stripe_payment_intent_id").notNull().unique(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  credits: integer("credits").notNull(),
+  amount: integer("amount").notNull(),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   documents: many(documents),
   rewriteJobs: many(rewriteJobs),
+  payments: many(payments),
 }));
 
 export const documentsRelations = relations(documents, ({ one }) => ({
@@ -55,6 +66,13 @@ export const documentsRelations = relations(documents, ({ one }) => ({
 export const rewriteJobsRelations = relations(rewriteJobs, ({ one }) => ({
   user: one(users, {
     fields: [rewriteJobs.userId],
+    references: [users.id],
+  }),
+}));
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  user: one(users, {
+    fields: [payments.userId],
     references: [users.id],
   }),
 }));
@@ -80,6 +98,7 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Document = typeof documents.$inferSelect;
 export type RewriteJob = typeof rewriteJobs.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
 export type InsertDocument = z.infer<typeof insertDocumentSchema>;
 export type InsertRewriteJob = z.infer<typeof insertRewriteJobSchema>;
 
