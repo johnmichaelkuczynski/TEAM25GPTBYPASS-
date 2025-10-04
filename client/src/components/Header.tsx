@@ -14,9 +14,10 @@ interface HeaderProps {
   provider: string;
   onProviderChange: (provider: string) => void;
   onShowApiKeys?: () => void;
+  onNavigateToPricing?: () => void;
 }
 
-export default function Header({ provider, onProviderChange, onShowApiKeys }: HeaderProps) {
+export default function Header({ provider, onProviderChange, onShowApiKeys, onNavigateToPricing }: HeaderProps) {
   const { user, loginMutation, registerMutation, logoutMutation } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
@@ -69,7 +70,7 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
               <i className="fas fa-key mr-2"></i>API Keys
             </Button>
 
-            <Link href="/pricing">
+            <Link href="/pricing" onClick={() => onNavigateToPricing?.()}>
               <Button 
                 variant="default" 
                 size="sm"
@@ -83,7 +84,7 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
             
             {user ? (
               <div className="flex items-center space-x-2">
-                <Link href="/pricing">
+                <Link href="/pricing" onClick={() => onNavigateToPricing?.()}>
                   <div className="flex items-center bg-blue-50 border border-blue-200 rounded-md px-3 py-1 cursor-pointer hover:bg-blue-100 transition-colors" data-testid="credit-display">
                     <Coins className="h-4 w-4 mr-1 text-blue-600" />
                     <span className="text-sm font-semibold text-blue-700" data-testid="text-credits">

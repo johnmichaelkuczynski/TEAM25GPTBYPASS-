@@ -18,6 +18,46 @@ import { Button } from "@/components/ui/button";
 import { Lock } from "lucide-react";
 import { Link } from "wouter";
 
+// LocalStorage key for persisting rewrite state across Stripe redirect
+const REWRITE_STATE_KEY = 'gptbypass_rewrite_state';
+
+interface RewriteState {
+  provider: string;
+  inputText: string;
+  styleText: string;
+  outputText: string;
+  customInstructions: string;
+  selectedPresets: string[];
+  selectedStyleSample: string;
+  contentMixText: string;
+  mixingMode: 'style' | 'content' | 'both';
+  inputAiScore: number | null;
+  styleAiScore: number | null;
+  outputAiScore: number | null;
+  lastJobId: string | null;
+}
+
+function saveRewriteState(state: RewriteState) {
+  try {
+    localStorage.setItem(REWRITE_STATE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.error('Failed to save rewrite state:', error);
+  }
+}
+
+function loadRewriteState(): RewriteState | null {
+  try {
+    const saved = localStorage.getItem(REWRITE_STATE_KEY);
+    if (saved) {
+      localStorage.removeItem(REWRITE_STATE_KEY); // Clear after loading
+      return JSON.parse(saved);
+    }
+  } catch (error) {
+    console.error('Failed to load rewrite state:', error);
+  }
+  return null;
+}
+
 export default function Home() {
   const { user } = useAuth();
   const [provider, setProvider] = useState<string>("anthropic");
@@ -77,6 +117,31 @@ export default function Home() {
     if (defaultSample && !selectedStyleSample) {
       setSelectedStyleSample(defaultSample.content);
       setStyleText(defaultSample.content);
+    }
+  }, []);
+
+  // Restore state after Stripe redirect
+  useEffect(() => {
+    const savedState = loadRewriteState();
+    if (savedState) {
+      setProvider(savedState.provider);
+      setInputText(savedState.inputText);
+      setStyleText(savedState.styleText);
+      setOutputText(savedState.outputText);
+      setCustomInstructions(savedState.customInstructions);
+      setSelectedPresets(savedState.selectedPresets);
+      setSelectedStyleSample(savedState.selectedStyleSample);
+      setContentMixText(savedState.contentMixText);
+      setMixingMode(savedState.mixingMode);
+      setInputAiScore(savedState.inputAiScore);
+      setStyleAiScore(savedState.styleAiScore);
+      setOutputAiScore(savedState.outputAiScore);
+      setLastJobId(savedState.lastJobId);
+      
+      toast({
+        title: "Rewrite Restored",
+        description: "Your previous rewrite has been restored after payment.",
+      });
     }
   }, []);
 
@@ -301,12 +366,32 @@ export default function Home() {
     );
   }
 
+  // Function to save state before navigating to pricing
+  const handleNavigateToPricing = () => {
+    saveRewriteState({
+      provider,
+      inputText,
+      styleText,
+      outputText,
+      customInstructions,
+      selectedPresets,
+      selectedStyleSample,
+      contentMixText,
+      mixingMode,
+      inputAiScore,
+      styleAiScore,
+      outputAiScore,
+      lastJobId,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-inter">
       <Header 
         provider={provider} 
         onProviderChange={setProvider}
         onShowApiKeys={() => setShowApiKeyManager(true)}
+        onNavigateToPricing={handleNavigateToPricing}
       />
       
       <div className="flex h-screen pt-16">
@@ -408,7 +493,7 @@ export default function Home() {
                 
                 {/* Paywall Banner */}
                 {isOutputTruncated && (
-                  <Link href="/pricing">
+                  <Link href="/pricing" onClick={handleNavigateToPricing}>
                     <div className="mt-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow" data-testid="paywall-banner">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
