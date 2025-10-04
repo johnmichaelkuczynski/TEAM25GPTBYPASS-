@@ -6,7 +6,17 @@ GPT Bypass is a comprehensive AI text rewriting application designed to transfor
 
 ## Recent Changes (January 2025)
 
-**Paywall System Improvements (October 4, 2025 - Latest)**
+**State Persistence Across Stripe Checkout (October 4, 2025 - Latest)**
+- Implemented localStorage-based state preservation that saves rewrites during payment flow
+- **Automatic State Saving**: When user clicks "Buy Credits" (paywall banner or header), all rewrite data is saved to localStorage
+- **Complete State Capture**: Preserves input text, output text, style text, content mix, custom instructions, selected presets, AI scores, and job ID
+- **Seamless Restoration**: On return from Stripe checkout, automatically restores entire rewrite session
+- **User Notification**: Shows "Rewrite Restored" toast notification when state is successfully restored
+- **Auto-Cleanup**: Saved state is cleared after restoration to prevent stale data
+- **Unified Navigation**: Shared `handleNavigateToPricing` callback used by both paywall banner and header pricing links
+- **Confirmed Working**: User-tested and verified end-to-end flow
+
+**Paywall System Improvements (October 4, 2025)**
 - Fixed "Buy Credits" button in paywall banner to be clickable and route to /pricing page
 - Implemented variable truncation for better user experience:
   - 80% preview for outputs ≤50 words (very generous for short content)
