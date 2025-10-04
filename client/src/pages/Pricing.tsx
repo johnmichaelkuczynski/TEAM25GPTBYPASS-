@@ -75,9 +75,15 @@ const CheckoutForm = ({ onSuccess }: { onSuccess: () => void }) => {
       } catch (verifyError: any) {
         setIsProcessing(false);
         console.error('Credit verification error:', verifyError);
+        
+        // Check if it's an authentication error
+        const isAuthError = verifyError.message?.includes('authenticated') || verifyError.message?.includes('401');
+        
         toast({
           title: "Payment Processed",
-          description: "Payment successful, but there was an issue adding credits. Please contact support.",
+          description: isAuthError 
+            ? "Your payment was successful! Please log in again to receive your credits. Your payment ID: " + paymentIntent.id.substring(0, 20) + "..."
+            : "Payment successful, but there was an issue adding credits. Please contact support with payment ID: " + paymentIntent.id.substring(0, 20) + "...",
           variant: "destructive",
         });
       }
