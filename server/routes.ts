@@ -48,6 +48,31 @@ function cleanMarkup(text: string): string {
     .trim();
 }
 
+function truncateForPaywall(text: string): string {
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  if (words.length === 0) return text;
+  
+  let percentage: number;
+  const wordCount = words.length;
+  
+  if (wordCount <= 50) {
+    percentage = 0.80;
+  } else if (wordCount <= 100) {
+    percentage = 0.65;
+  } else if (wordCount <= 200) {
+    percentage = 0.55;
+  } else if (wordCount <= 400) {
+    percentage = 0.45;
+  } else if (wordCount <= 600) {
+    percentage = 0.40;
+  } else {
+    percentage = 0.35;
+  }
+  
+  const wordsToShow = Math.max(1, Math.floor(wordCount * percentage));
+  return words.slice(0, wordsToShow).join(' ') + '...';
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -218,11 +243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Truncate output if user doesn't have credits
         let finalRewrittenText = cleanedRewrittenText;
         if (!userHasCredits) {
-          const words = finalRewrittenText.split(/\s+/).filter(w => w.length > 0);
-          if (words.length > 0) {
-            const halfLength = Math.max(1, Math.ceil(words.length / 2));
-            finalRewrittenText = words.slice(0, halfLength).join(' ') + '...';
-          }
+          finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
         }
 
         const response: RewriteResponse = {
@@ -333,11 +354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Truncate output if user doesn't have credits
         let finalRewrittenText = cleanedRewrittenText;
         if (!userHasCredits) {
-          const words = finalRewrittenText.split(/\s+/).filter(w => w.length > 0);
-          if (words.length > 0) {
-            const halfLength = Math.max(1, Math.ceil(words.length / 2));
-            finalRewrittenText = words.slice(0, halfLength).join(' ') + '...';
-          }
+          finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
         }
 
         const response: RewriteResponse = {
@@ -382,11 +399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Truncate outputText if job wasn't paid for
       if (!jobWasPaid && job.outputText) {
-        const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
-        if (words.length > 0) {
-          const halfLength = Math.max(1, Math.ceil(words.length / 2));
-          job.outputText = words.slice(0, halfLength).join(' ') + '...';
-        }
+        job.outputText = truncateForPaywall(job.outputText);
       }
 
       res.json(job);
@@ -415,11 +428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       userJobs.forEach(job => {
         const jobWasPaid = (job.creditsPaid || 0) > 0;
         if (!jobWasPaid && job.outputText) {
-          const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
-          if (words.length > 0) {
-            const halfLength = Math.max(1, Math.ceil(words.length / 2));
-            job.outputText = words.slice(0, halfLength).join(' ') + '...';
-          }
+          job.outputText = truncateForPaywall(job.outputText);
         }
       });
       
@@ -617,11 +626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Truncate response if user doesn't have credits (paywall)
       let finalResponse = cleanedResponse;
       if (!userHasCredits) {
-        const words = finalResponse.split(/\s+/).filter(w => w.length > 0);
-        if (words.length > 0) {
-          const halfLength = Math.max(1, Math.ceil(words.length / 2));
-          finalResponse = words.slice(0, halfLength).join(' ') + '...\n\n[Get the full response by purchasing credits or logging in]';
-        }
+        finalResponse = truncateForPaywall(cleanedResponse);
       }
       
       res.json({ response: finalResponse });
@@ -650,11 +655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       rewriteJobs.forEach(job => {
         const jobWasPaid = (job.creditsPaid || 0) > 0;
         if (!jobWasPaid && job.outputText) {
-          const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
-          if (words.length > 0) {
-            const halfLength = Math.max(1, Math.ceil(words.length / 2));
-            job.outputText = words.slice(0, halfLength).join(' ') + '...';
-          }
+          job.outputText = truncateForPaywall(job.outputText);
         }
       });
 

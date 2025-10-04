@@ -419,8 +419,8 @@ export default function Home() {
                             </h3>
                             <p className="text-sm text-blue-700 mt-1">
                               {!user 
-                                ? "You're seeing half the output. Create an account or log in to access the full rewritten text."
-                                : "You're seeing half the output. Purchase credits to unlock the complete rewritten text."}
+                                ? "You're seeing a preview of the output. Create an account or log in to access the full rewritten text."
+                                : "You're seeing a preview of the output. Purchase credits to unlock the complete rewritten text."}
                             </p>
                           </div>
                         </div>
