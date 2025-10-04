@@ -43,10 +43,10 @@ const CheckoutForm = ({ onSuccess }: { onSuccess: () => void }) => {
       redirect: 'if_required',
     });
 
-    setIsProcessing(false);
     console.log('Payment result:', { error, paymentIntent });
 
     if (error) {
+      setIsProcessing(false);
       console.error('Payment error:', error);
       toast({
         title: "Payment Failed",
@@ -54,14 +54,35 @@ const CheckoutForm = ({ onSuccess }: { onSuccess: () => void }) => {
         variant: "destructive",
       });
     } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      console.log('Payment succeeded!');
-      toast({
-        title: "Payment Successful",
-        description: "Your credits have been added!",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
-      onSuccess();
+      console.log('Payment succeeded! Verifying and adding credits...');
+      
+      try {
+        const result = await apiRequest("/api/verify-payment", {
+          method: "POST",
+          body: { paymentIntentId: paymentIntent.id }
+        });
+        
+        console.log('Credits added:', result);
+        setIsProcessing(false);
+        
+        toast({
+          title: "Payment Successful",
+          description: `${result.creditsAdded.toLocaleString()} credits added to your account!`,
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+        onSuccess();
+      } catch (verifyError: any) {
+        setIsProcessing(false);
+        console.error('Credit verification error:', verifyError);
+        toast({
+          title: "Payment Processed",
+          description: "Payment successful, but there was an issue adding credits. Please contact support.",
+          variant: "destructive",
+        });
+      }
     } else {
+      setIsProcessing(false);
       console.log('Payment status:', paymentIntent?.status);
       toast({
         title: "Payment Processing",
