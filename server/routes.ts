@@ -221,28 +221,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Check if user has enough credits for full output
         const userHasCredits = req.user && currentCredits >= outputWordCount;
+        let creditsActuallyDeducted = false;
         
         // Deduct credits if user has enough
         if (userHasCredits) {
           try {
             await storage.deductUserCredits(req.user.id, outputWordCount);
+            creditsActuallyDeducted = true;
           } catch (error: any) {
-            // If deduction fails, continue but user will get truncated output
+            // If deduction fails, user will get truncated output
             console.error('Credit deduction error:', error);
           }
         }
 
-        // Update job with results (and mark credits paid if deducted)
+        // Update job with results (and mark credits paid only if deduction succeeded)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
-          creditsPaid: userHasCredits ? outputWordCount : 0,
+          creditsPaid: creditsActuallyDeducted ? outputWordCount : 0,
         });
 
-        // Truncate output if user doesn't have credits
+        // Truncate output if credits weren't actually deducted
         let finalRewrittenText = cleanedRewrittenText;
-        if (!userHasCredits) {
+        if (!creditsActuallyDeducted) {
           finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
         }
 
@@ -332,28 +334,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Check if user has enough credits for full output
         const userHasCredits = req.user && currentCredits >= outputWordCount;
+        let creditsActuallyDeducted = false;
         
         // Deduct credits if user has enough
         if (userHasCredits) {
           try {
             await storage.deductUserCredits(req.user.id, outputWordCount);
+            creditsActuallyDeducted = true;
           } catch (error: any) {
-            // If deduction fails, continue but user will get truncated output
+            // If deduction fails, user will get truncated output
             console.error('Credit deduction error:', error);
           }
         }
 
-        // Update job with results (and mark credits paid if deducted)
+        // Update job with results (and mark credits paid only if deduction succeeded)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
-          creditsPaid: userHasCredits ? outputWordCount : 0,
+          creditsPaid: creditsActuallyDeducted ? outputWordCount : 0,
         });
 
-        // Truncate output if user doesn't have credits
+        // Truncate output if credits weren't actually deducted
         let finalRewrittenText = cleanedRewrittenText;
-        if (!userHasCredits) {
+        if (!creditsActuallyDeducted) {
           finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
         }
 
@@ -612,20 +616,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check if user has enough credits for full output
       const userHasCredits = req.user && currentCredits >= outputWordCount;
+      let creditsActuallyDeducted = false;
       
       // Deduct credits if user has enough
       if (userHasCredits) {
         try {
           await storage.deductUserCredits(req.user.id, outputWordCount);
+          creditsActuallyDeducted = true;
         } catch (error: any) {
-          // If deduction fails, continue but user will get truncated output
+          // If deduction fails, user will get truncated output
           console.error('Credit deduction error:', error);
         }
       }
       
-      // Truncate response if user doesn't have credits (paywall)
+      // Truncate response if credits weren't actually deducted (paywall)
       let finalResponse = cleanedResponse;
-      if (!userHasCredits) {
+      if (!creditsActuallyDeducted) {
         finalResponse = truncateForPaywall(cleanedResponse);
       }
       
