@@ -591,9 +591,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Stripe webhook handler
   app.post("/api/webhooks/stripe", async (req, res) => {
+    console.log('=== STRIPE WEBHOOK RECEIVED ===');
     const sig = req.headers['stripe-signature'];
     
     if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+      console.log('Webhook signature or secret missing');
       return res.status(400).send('Webhook signature missing');
     }
 
@@ -605,14 +607,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sig,
         process.env.STRIPE_WEBHOOK_SECRET
       );
+      console.log('Webhook event verified:', event.type);
     } catch (err: any) {
       console.error('Webhook signature verification failed:', err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     if (event.type === 'payment_intent.succeeded') {
+      console.log('Payment intent succeeded event');
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       const { userId, credits } = paymentIntent.metadata;
+      console.log('Metadata:', { userId, credits });
 
       if (userId && credits) {
         try {
@@ -620,12 +625,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (user) {
             const newCredits = user.credits + parseInt(credits);
             await storage.updateUserCredits(userId, newCredits);
-            console.log(`Added ${credits} credits to user ${userId}. New balance: ${newCredits}`);
+            console.log(`✅ Added ${credits} credits to user ${userId}. New balance: ${newCredits}`);
+          } else {
+            console.log('User not found:', userId);
           }
         } catch (error: any) {
           console.error('Error updating credits:', error);
         }
+      } else {
+        console.log('Missing userId or credits in metadata');
       }
+    } else {
+      console.log('Ignoring event type:', event.type);
     }
 
     res.json({ received: true });

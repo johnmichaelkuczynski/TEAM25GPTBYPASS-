@@ -25,14 +25,17 @@ const CheckoutForm = ({ onSuccess }: { onSuccess: () => void }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('=== CHECKOUT FORM SUBMIT ===');
 
     if (!stripe || !elements) {
+      console.log('Stripe or elements not ready');
       return;
     }
 
     setIsProcessing(true);
+    console.log('Confirming payment...');
 
-    const { error } = await stripe.confirmPayment({
+    const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: window.location.origin + '/pricing',
@@ -41,20 +44,29 @@ const CheckoutForm = ({ onSuccess }: { onSuccess: () => void }) => {
     });
 
     setIsProcessing(false);
+    console.log('Payment result:', { error, paymentIntent });
 
     if (error) {
+      console.error('Payment error:', error);
       toast({
         title: "Payment Failed",
         description: error.message,
         variant: "destructive",
       });
-    } else {
+    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+      console.log('Payment succeeded!');
       toast({
         title: "Payment Successful",
         description: "Your credits have been added!",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       onSuccess();
+    } else {
+      console.log('Payment status:', paymentIntent?.status);
+      toast({
+        title: "Payment Processing",
+        description: "Your payment is being processed",
+      });
     }
   };
 
@@ -92,7 +104,12 @@ export default function Pricing() {
   };
 
   const handlePurchase = async (tier: PricingTier) => {
+    console.log('=== PURCHASE CLICKED ===');
+    console.log('User:', user);
+    console.log('Tier:', tier);
+    
     if (!user) {
+      console.log('No user - showing login required');
       toast({
         title: "Login Required",
         description: "Please login to purchase credits",
@@ -104,13 +121,16 @@ export default function Pricing() {
     setSelectedTier(tier);
     
     try {
+      console.log('Creating payment intent for tier:', tier.id);
       const data = await apiRequest("/api/create-payment-intent", {
         method: "POST",
         body: { tierId: tier.id }
       });
+      console.log('Payment intent created, client secret received');
       setClientSecret(data.clientSecret);
       setCheckoutOpen(true);
     } catch (error: any) {
+      console.error('Payment intent error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to create payment",
