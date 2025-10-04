@@ -527,20 +527,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create Stripe payment intent
   app.post("/api/create-payment-intent", async (req, res) => {
     try {
+      console.log('=== PAYMENT INTENT REQUEST ===');
+      console.log('User:', req.user?.username, req.user?.id);
+      
       if (!req.isAuthenticated() || !req.user) {
+        console.log('Not authenticated');
         return res.status(401).json({ message: "Not authenticated" });
       }
 
       const { tierId } = req.body;
+      console.log('Requested tier:', tierId);
+      
       const tier = pricingTiers.find(t => t.id === tierId);
 
       if (!tier) {
+        console.log('Invalid tier');
         return res.status(400).json({ message: "Invalid pricing tier" });
       }
 
       let stripeCustomerId = req.user.stripeCustomerId;
       
       if (!stripeCustomerId) {
+        console.log('Creating new Stripe customer...');
         const customer = await stripe.customers.create({
           metadata: {
             userId: req.user.id,
@@ -549,7 +557,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         stripeCustomerId = customer.id;
         await storage.updateStripeCustomerId(req.user.id, stripeCustomerId);
+        console.log('Created customer:', stripeCustomerId);
+      } else {
+        console.log('Using existing customer:', stripeCustomerId);
       }
+
+      console.log('Creating payment intent:', {
+        amount: tier.priceUsd * 100,
+        customer: stripeCustomerId,
+        credits: tier.credits
+      });
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount: tier.priceUsd * 100,
@@ -561,6 +578,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           credits: tier.credits.toString(),
         },
       });
+
+      console.log('Payment intent created:', paymentIntent.id);
+      console.log('Client secret sent to frontend');
 
       res.json({ clientSecret: paymentIntent.client_secret });
     } catch (error: any) {
