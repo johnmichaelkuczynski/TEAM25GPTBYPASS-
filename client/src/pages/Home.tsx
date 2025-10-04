@@ -428,7 +428,6 @@ export default function Home() {
                           size="lg" 
                           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8"
                           data-testid="button-unlock-output"
-                          onClick={(e) => e.preventDefault()}
                         >
                           {!user ? "Login / Sign Up" : "Buy Credits"}
                         </Button>
