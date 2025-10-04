@@ -6,6 +6,18 @@ GPT Bypass is a comprehensive AI text rewriting application designed to transfor
 
 ## Recent Changes (January 2025)
 
+**Stripe Payment System with Atomic Credit Fulfillment (October 4, 2025)**
+- Implemented production-ready Stripe payment integration with database transactions for atomic credit fulfillment
+- **Payment Tiers**: ZHI 1-4 credit packages at $5 (500 credits), $10 (1,050 credits), $25 (2,750 credits), $50 (5,750 credits), $100 (12,000 credits)
+- **Transactional Processing**: Database transactions wrap payment insert and credit increment for atomicity (both succeed or both roll back)
+- **Idempotency Protection**: Unique constraint on `stripe_payment_intent_id` prevents duplicate credit grants from concurrent requests
+- **Dual Fulfillment**: Both `/api/verify-payment` endpoint and Stripe webhook handle credit fulfillment with shared transactional logic
+- **Atomic Credit Increment**: SQL-level `UPDATE users SET credits = credits + $1` prevents read-modify-write race conditions
+- **Error Handling**: Unique constraint violations caught gracefully, indicating payment already processed
+- **Payment Tracking**: `payments` table stores all successful transactions with Stripe payment intent ID, user ID, credits, and amount
+- **Real-time Updates**: Frontend invalidates user query cache after payment for immediate credit balance refresh
+- **Security**: Payment verification confirms Stripe payment status and user ownership before granting credits
+
 **User Authentication & Persistence System (October 3, 2025)**
 - Implemented complete optional authentication system - site remains fully accessible to guest users
 - **Database Setup**: PostgreSQL database with Drizzle ORM, migrated from memory storage to persistent storage
@@ -74,8 +86,10 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Architecture
 - **Drizzle ORM**: Type-safe database toolkit with active PostgreSQL integration for persistent storage
-- **Schema Design**: Well-defined schemas for users (with authentication), documents, and rewrite jobs with proper relationships
-- **User Data**: Secure storage of user credentials with hashed passwords, session data persisted to database
+- **Schema Design**: Well-defined schemas for users (with authentication), documents, rewrite jobs, and payments with proper relationships
+- **User Data**: Secure storage of user credentials with hashed passwords, credit balance, Stripe customer ID, session data persisted to database
+- **Payment Tracking**: Payments table with unique constraint on Stripe payment intent ID for idempotency
+- **Transactional Operations**: Database transactions ensure atomic payment insert and credit increment (both succeed or both roll back)
 - **Material Storage**: Documents and rewrite jobs linked to user accounts via foreign keys for authenticated users
 - **Text Chunking**: Intelligent text segmentation for large documents (>500 words) with configurable overlap
 - **Job Management**: Async rewrite job processing with status tracking and result storage
@@ -117,6 +131,12 @@ Preferred communication style: Simple, everyday language.
 - **Anthropic API**: Claude Sonnet 4 integration for alternative AI processing
 - **GPTZero API**: AI detection scoring service for input and output analysis
 - **DeepSeek & Perplexity**: Additional AI provider support (configured for future implementation)
+
+### Payment Integration
+- **Stripe API**: Credit package purchases with live payment processing
+- **Payment Intents**: Secure payment flow with metadata for credit amounts
+- **Webhook Integration**: `payment_intent.succeeded` event handling for backup credit fulfillment
+- **Transaction Safety**: Database transactions ensure payment records and credit grants are atomic
 
 ### Database
 - **PostgreSQL**: Configured via Neon Database serverless connection (ready for production)
