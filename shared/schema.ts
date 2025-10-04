@@ -37,6 +37,7 @@ export const rewriteJobs = pgTable("rewrite_jobs", {
   inputAiScore: integer("input_ai_score"),
   outputAiScore: integer("output_ai_score"),
   status: text("status").notNull().default("pending"),
+  creditsPaid: integer("credits_paid").default(0),
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 

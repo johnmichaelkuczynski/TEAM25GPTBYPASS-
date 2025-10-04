@@ -68,6 +68,18 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
             >
               <i className="fas fa-key mr-2"></i>API Keys
             </Button>
+
+            <Link href="/pricing">
+              <Button 
+                variant="default" 
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="button-buy-credits"
+              >
+                <Coins className="h-4 w-4 mr-2" />
+                Buy Credits
+              </Button>
+            </Link>
             
             {user ? (
               <div className="flex items-center space-x-2">

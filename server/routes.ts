@@ -148,16 +148,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Input text and provider are required" });
       }
 
-      // Calculate word count for credit deduction
-      const wordCount = rewriteRequest.inputText.trim().split(/\s+/).length;
-      
-      // Check and deduct credits if user is logged in
+      // Get fresh user data from database to check current credit balance
+      let currentCredits = 0;
       if (req.user) {
-        try {
-          await storage.deductUserCredits(req.user.id, wordCount);
-        } catch (error: any) {
-          return res.status(402).json({ message: error.message });
-        }
+        const freshUser = await storage.getUser(req.user.id);
+        currentCredits = freshUser?.credits || 0;
       }
 
       // Analyze input text
@@ -196,15 +191,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Clean markup from rewritten text
         const cleanedRewrittenText = cleanMarkup(rewrittenText);
 
-        // Update job with results
+        // Calculate word count for credit deduction (use output length)
+        const outputWordCount = cleanedRewrittenText.trim().split(/\s+/).length;
+        
+        // Check if user has enough credits for full output
+        const userHasCredits = req.user && currentCredits >= outputWordCount;
+        
+        // Deduct credits if user has enough
+        if (userHasCredits) {
+          try {
+            await storage.deductUserCredits(req.user.id, outputWordCount);
+          } catch (error: any) {
+            // If deduction fails, continue but user will get truncated output
+            console.error('Credit deduction error:', error);
+          }
+        }
+
+        // Update job with results (and mark credits paid if deducted)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
+          creditsPaid: userHasCredits ? outputWordCount : 0,
         });
 
+        // Truncate output if user doesn't have credits
+        let finalRewrittenText = cleanedRewrittenText;
+        if (!userHasCredits) {
+          const words = finalRewrittenText.split(/\s+/).filter(w => w.length > 0);
+          if (words.length > 0) {
+            const halfLength = Math.max(1, Math.ceil(words.length / 2));
+            finalRewrittenText = words.slice(0, halfLength).join(' ') + '...';
+          }
+        }
+
         const response: RewriteResponse = {
-          rewrittenText: cleanMarkup(rewrittenText),
+          rewrittenText: finalRewrittenText,
           inputAiScore: inputAnalysis.aiScore,
           outputAiScore: outputAnalysis.aiScore,
           jobId: rewriteJob.id,
@@ -234,6 +256,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const originalJob = await storage.getRewriteJob(jobId);
       if (!originalJob || !originalJob.outputText) {
         return res.status(404).json({ message: "Original job not found or incomplete" });
+      }
+
+      // Get fresh user data from database to check current credit balance
+      let currentCredits = 0;
+      if (req.user) {
+        const freshUser = await storage.getUser(req.user.id);
+        currentCredits = freshUser?.credits || 0;
       }
 
       // Create new rewrite job using the previous output as input (save with userId if logged in)
@@ -277,15 +306,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Clean markup from output
         const cleanedRewrittenText = cleanMarkup(rewrittenText);
 
-        // Update job with results
+        // Calculate word count for credit deduction (use output length)
+        const outputWordCount = cleanedRewrittenText.trim().split(/\s+/).length;
+        
+        // Check if user has enough credits for full output
+        const userHasCredits = req.user && currentCredits >= outputWordCount;
+        
+        // Deduct credits if user has enough
+        if (userHasCredits) {
+          try {
+            await storage.deductUserCredits(req.user.id, outputWordCount);
+          } catch (error: any) {
+            // If deduction fails, continue but user will get truncated output
+            console.error('Credit deduction error:', error);
+          }
+        }
+
+        // Update job with results (and mark credits paid if deducted)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
+          creditsPaid: userHasCredits ? outputWordCount : 0,
         });
 
+        // Truncate output if user doesn't have credits
+        let finalRewrittenText = cleanedRewrittenText;
+        if (!userHasCredits) {
+          const words = finalRewrittenText.split(/\s+/).filter(w => w.length > 0);
+          if (words.length > 0) {
+            const halfLength = Math.max(1, Math.ceil(words.length / 2));
+            finalRewrittenText = words.slice(0, halfLength).join(' ') + '...';
+          }
+        }
+
         const response: RewriteResponse = {
-          rewrittenText: cleanedRewrittenText,
+          rewrittenText: finalRewrittenText,
           inputAiScore: originalJob.outputAiScore || 0,
           outputAiScore: outputAnalysis.aiScore,
           jobId: rewriteJob.id,
@@ -312,6 +368,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Job not found" });
       }
 
+      // Authorization: Only allow access if user owns the job or job has no owner (guest job)
+      if (job.userId) {
+        // Job belongs to a user - must be logged in and be the owner
+        if (!req.user || req.user.id !== job.userId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      // Guest jobs (no userId) are accessible to anyone for backward compatibility
+
+      // Check if this job was already paid for
+      const jobWasPaid = (job.creditsPaid || 0) > 0;
+      
+      // Truncate outputText if job wasn't paid for
+      if (!jobWasPaid && job.outputText) {
+        const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
+        if (words.length > 0) {
+          const halfLength = Math.max(1, Math.ceil(words.length / 2));
+          job.outputText = words.slice(0, halfLength).join(' ') + '...';
+        }
+      }
+
       res.json(job);
     } catch (error) {
       console.error('Get job error:', error);
@@ -323,7 +400,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/jobs", async (req, res) => {
     try {
       const jobs = await storage.listRewriteJobs();
-      res.json(jobs);
+      
+      // Filter jobs based on user ownership
+      const userJobs = jobs.filter(job => {
+        if (job.userId) {
+          // Job belongs to a user - only show if logged in and is the owner
+          return req.user && req.user.id === job.userId;
+        }
+        // Guest jobs (no userId) - show to everyone for backward compatibility
+        return true;
+      });
+      
+      // Truncate outputText in jobs that weren't paid for
+      userJobs.forEach(job => {
+        const jobWasPaid = (job.creditsPaid || 0) > 0;
+        if (!jobWasPaid && job.outputText) {
+          const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
+          if (words.length > 0) {
+            const halfLength = Math.max(1, Math.ceil(words.length / 2));
+            job.outputText = words.slice(0, halfLength).join(' ') + '...';
+          }
+        }
+      });
+      
+      res.json(userJobs);
     } catch (error) {
       console.error('List jobs error:', error);
       res.status(500).json({ message: error.message });
@@ -409,6 +509,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Message and provider are required" });
       }
 
+      // Get fresh user data from database to check current credit balance
+      let currentCredits = 0;
+      if (req.user) {
+        const freshUser = await storage.getUser(req.user.id);
+        currentCredits = freshUser?.credits || 0;
+      }
+
       console.log(`🔥 CHAT REQUEST - Provider: ${provider}, Message: "${message}"`);
       console.log(`🔥 CHAT CONTEXT:`, context);
 
@@ -487,7 +594,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`🔥 CHAT RESPONSE - Length: ${response?.length || 0}`);
-      res.json({ response: cleanMarkup(response) });
+      
+      // Clean markup from response
+      const cleanedResponse = cleanMarkup(response);
+      
+      // Calculate word count for credit deduction (use output length)
+      const outputWordCount = cleanedResponse.trim().split(/\s+/).length;
+      
+      // Check if user has enough credits for full output
+      const userHasCredits = req.user && currentCredits >= outputWordCount;
+      
+      // Deduct credits if user has enough
+      if (userHasCredits) {
+        try {
+          await storage.deductUserCredits(req.user.id, outputWordCount);
+        } catch (error: any) {
+          // If deduction fails, continue but user will get truncated output
+          console.error('Credit deduction error:', error);
+        }
+      }
+      
+      // Truncate response if user doesn't have credits (paywall)
+      let finalResponse = cleanedResponse;
+      if (!userHasCredits) {
+        const words = finalResponse.split(/\s+/).filter(w => w.length > 0);
+        if (words.length > 0) {
+          const halfLength = Math.max(1, Math.ceil(words.length / 2));
+          finalResponse = words.slice(0, halfLength).join(' ') + '...\n\n[Get the full response by purchasing credits or logging in]';
+        }
+      }
+      
+      res.json({ response: finalResponse });
     } catch (error: any) {
       console.error('Chat error:', error);
       res.status(500).json({ 
@@ -508,6 +645,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getUserDocuments(req.user.id),
         storage.getUserRewriteJobs(req.user.id)
       ]);
+
+      // Truncate outputText in jobs that weren't paid for
+      rewriteJobs.forEach(job => {
+        const jobWasPaid = (job.creditsPaid || 0) > 0;
+        if (!jobWasPaid && job.outputText) {
+          const words = job.outputText.split(/\s+/).filter(w => w.length > 0);
+          if (words.length > 0) {
+            const halfLength = Math.max(1, Math.ceil(words.length / 2));
+            job.outputText = words.slice(0, halfLength).join(' ') + '...';
+          }
+        }
+      });
 
       res.json({
         documents,

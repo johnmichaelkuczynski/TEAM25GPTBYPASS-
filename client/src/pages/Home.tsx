@@ -9,12 +9,17 @@ import DownloadModal from "@/components/DownloadModal";
 import ChatInterface from "@/components/ChatInterface";
 import ApiKeyManager from "@/components/ApiKeyManager";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { writingSamples } from "@/lib/writingSamples";
 import type { TextChunk, RewriteRequest, RewriteResponse } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { Lock } from "lucide-react";
+import { Link } from "wouter";
 
 export default function Home() {
+  const { user } = useAuth();
   const [provider, setProvider] = useState<string>("anthropic");
   const [inputText, setInputText] = useState("");
   const [styleText, setStyleText] = useState("");
@@ -43,6 +48,28 @@ export default function Home() {
   const [lastJobId, setLastJobId] = useState<string | null>(null);
   
   const { toast } = useToast();
+
+  // Helper function to check if user should see full output
+  const canViewFullOutput = () => {
+    if (!user) return false; // Not logged in
+    return (user.credits || 0) > 0; // Has credits
+  };
+
+  // Helper function to get display text (full or truncated)
+  const getDisplayText = (fullText: string) => {
+    if (!fullText) return "";
+    if (canViewFullOutput()) return fullText;
+    
+    // Show half the output for users without credits or not logged in
+    const words = fullText.split(/\s+/).filter(w => w.length > 0);
+    if (words.length === 0) return "";
+    
+    // Ensure at least 1 word is shown, then take half
+    const halfLength = Math.max(1, Math.ceil(words.length / 2));
+    return words.slice(0, halfLength).join(' ') + '...';
+  };
+
+  const isOutputTruncated = outputText && !canViewFullOutput();
 
   // Set default style sample on component mount
   useEffect(() => {
@@ -90,6 +117,7 @@ export default function Home() {
       }) as Promise<RewriteResponse>;
     },
     onSuccess: (data) => {
+      // Backend already truncates based on credits, just store what we receive
       setOutputText(data.rewrittenText);
       setOutputAiScore(data.outputAiScore);
       setLastJobId(data.jobId);
@@ -121,6 +149,7 @@ export default function Home() {
       }) as Promise<RewriteResponse>;
     },
     onSuccess: (data) => {
+      // Backend already truncates based on credits, just store what we receive
       setOutputText(data.rewrittenText);
       setOutputAiScore(data.outputAiScore);
       setLastJobId(data.jobId);
@@ -356,25 +385,58 @@ export default function Home() {
                 canSubmit={!!inputText.trim()}
               />
               
-              <TextBox
-                title="Rewritten Output (Box D)"
-                icon="fas fa-download"
-                placeholder="Rewritten text will appear here..."
-                value={outputText}
-                onChange={() => {}} // Read-only
-                aiScore={outputAiScore}
-                isLoading={isProcessing}
-                readOnly
-                showReRewrite
-                onReRewrite={handleReRewrite}
-                canReRewrite={!!lastJobId && !isProcessing}
-                onDownload={() => setShowDownloadModal(true)}
-                onClear={() => {
-                  setOutputText("");
-                  setOutputAiScore(null);
-                  setLastJobId(null);
-                }}
-              />
+              <div className="relative">
+                <TextBox
+                  title="Rewritten Output (Box D)"
+                  icon="fas fa-download"
+                  placeholder="Rewritten text will appear here..."
+                  value={outputText}
+                  onChange={() => {}} // Read-only
+                  aiScore={outputAiScore}
+                  isLoading={isProcessing}
+                  readOnly
+                  showReRewrite
+                  onReRewrite={handleReRewrite}
+                  canReRewrite={!!lastJobId && !isProcessing}
+                  onDownload={() => setShowDownloadModal(true)}
+                  onClear={() => {
+                    setOutputText("");
+                    setOutputAiScore(null);
+                    setLastJobId(null);
+                  }}
+                />
+                
+                {/* Paywall Banner */}
+                {isOutputTruncated && (
+                  <Link href="/pricing">
+                    <div className="mt-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow" data-testid="paywall-banner">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <Lock className="h-6 w-6 text-blue-600" />
+                          <div>
+                            <h3 className="text-lg font-bold text-blue-900">
+                              {!user ? "Login to See Full Output" : "Get Credits to See Full Output"}
+                            </h3>
+                            <p className="text-sm text-blue-700 mt-1">
+                              {!user 
+                                ? "You're seeing half the output. Create an account or log in to access the full rewritten text."
+                                : "You're seeing half the output. Purchase credits to unlock the complete rewritten text."}
+                            </p>
+                          </div>
+                        </div>
+                        <Button 
+                          size="lg" 
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8"
+                          data-testid="button-unlock-output"
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          {!user ? "Login / Sign Up" : "Buy Credits"}
+                        </Button>
+                      </div>
+                    </div>
+                  </Link>
+                )}
+              </div>
             </div>
 
             {/* Main Controls */}
@@ -398,6 +460,16 @@ export default function Home() {
                 contentMixText={contentMixText}
                 outputText={outputText}
                 onSendToBox={(boxId, text) => {
+                  // Block sending to output box without credits
+                  if (boxId === 'output' && !canViewFullOutput()) {
+                    toast({
+                      title: "Credits Required",
+                      description: "You need to purchase credits or log in to send text to the output box.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+
                   switch (boxId) {
                     case 'input':
                       setInputText(text);
