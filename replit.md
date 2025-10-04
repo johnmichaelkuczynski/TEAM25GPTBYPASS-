@@ -6,6 +6,19 @@ GPT Bypass is a comprehensive AI text rewriting application designed to transfor
 
 ## Recent Changes (January 2025)
 
+**Paywall System Improvements (October 4, 2025 - Latest)**
+- Fixed "Buy Credits" button in paywall banner to be clickable and route to /pricing page
+- Implemented variable truncation for better user experience:
+  - 80% preview for outputs ≤50 words (very generous for short content)
+  - 65% preview for 51-100 words
+  - 55% preview for 101-200 words
+  - 45% preview for 201-400 words
+  - 40% preview for 401-600 words
+  - 35% preview for >600 words (30-50% range for long content)
+- Enhanced credit deduction security: `creditsPaid` flag only set if deduction actually succeeds
+- Consistent `truncateForPaywall()` function applied across all 6 endpoints: `/api/rewrite`, `/api/re-rewrite`, `/api/chat`, `/api/jobs/:id`, `/api/jobs`, `/api/user/materials`
+- Prevents bypass where credit deduction errors could leak full output to users
+
 **Stripe Payment System with Atomic Credit Fulfillment (October 4, 2025)**
 - Implemented production-ready Stripe payment integration with database transactions for atomic credit fulfillment
 - **Payment Tiers**: ZHI 1-4 credit packages at $5 (500 credits), $10 (1,050 credits), $25 (2,750 credits), $50 (5,750 credits), $100 (12,000 credits)
