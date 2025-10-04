@@ -589,7 +589,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stripe webhook handler
+  // Verify payment and add credits (fallback for when webhooks aren't configured)
+  app.post("/api/verify-payment", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { paymentIntentId } = req.body;
+      
+      if (!paymentIntentId) {
+        return res.status(400).json({ message: "Payment intent ID required" });
+      }
+
+      console.log('=== VERIFYING PAYMENT ===');
+      console.log('Payment Intent ID:', paymentIntentId);
+      console.log('User:', req.user.id);
+
+      // Retrieve payment intent from Stripe to verify it succeeded
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      console.log('Payment Intent Status:', paymentIntent.status);
+      console.log('Payment Intent Metadata:', paymentIntent.metadata);
+
+      if (paymentIntent.status !== 'succeeded') {
+        return res.status(400).json({ message: `Payment not successful. Status: ${paymentIntent.status}` });
+      }
+
+      // Verify this payment belongs to the authenticated user
+      if (paymentIntent.metadata.userId !== req.user.id) {
+        return res.status(403).json({ message: "Payment does not belong to this user" });
+      }
+
+      const credits = parseInt(paymentIntent.metadata.credits || '0');
+      
+      if (!credits) {
+        return res.status(400).json({ message: "No credits amount in payment metadata" });
+      }
+
+      // Add credits to user
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const newCredits = user.credits + credits;
+      await storage.updateUserCredits(req.user.id, newCredits);
+      
+      console.log(`✅ Added ${credits} credits to user ${req.user.id}. New balance: ${newCredits}`);
+
+      res.json({ 
+        success: true, 
+        creditsAdded: credits,
+        newBalance: newCredits
+      });
+    } catch (error: any) {
+      console.error('Payment verification error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe webhook handler (for production when webhooks are configured)
   app.post("/api/webhooks/stripe", async (req, res) => {
     console.log('=== STRIPE WEBHOOK RECEIVED ===');
     const sig = req.headers['stripe-signature'];
