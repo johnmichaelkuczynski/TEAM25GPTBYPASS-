@@ -8,7 +8,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Coins, Check } from "lucide-react";
+import { Coins, Check, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 import type { PricingTier } from "@shared/schema";
 
 if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
@@ -127,6 +128,14 @@ export default function Pricing() {
   return (
     <div className="min-h-screen bg-gray-50 pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <Link href="/">
+            <Button variant="ghost" data-testid="button-back-home">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to App
+            </Button>
+          </Link>
+        </div>
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Purchase Credits</h1>
           <p className="text-lg text-gray-600">Choose your credit package based on your AI provider</p>
