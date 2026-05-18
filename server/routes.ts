@@ -12,12 +12,9 @@ import { z } from "zod";
 import { setupAuth } from "./auth";
 import Stripe from "stripe";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-09-30.clover",
-});
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2025-09-30.clover" })
+  : null;
 
 // Configure multer for file uploads
 const upload = multer({
@@ -683,6 +680,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create Stripe payment intent
   app.post("/api/create-payment-intent", async (req, res) => {
     try {
+      if (!stripe) {
+        return res.status(503).json({ message: "Payment processing is not configured" });
+      }
       console.log('=== PAYMENT INTENT REQUEST ===');
       console.log('User:', req.user?.username, req.user?.id);
       
@@ -748,6 +748,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Verify payment and add credits (fallback for when webhooks aren't configured)
   app.post("/api/verify-payment", async (req, res) => {
     try {
+      if (!stripe) {
+        return res.status(503).json({ message: "Payment processing is not configured" });
+      }
       if (!req.isAuthenticated() || !req.user) {
         return res.status(401).json({ message: "Not authenticated" });
       }
