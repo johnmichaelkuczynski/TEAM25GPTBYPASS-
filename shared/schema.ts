@@ -128,7 +128,7 @@ export interface WritingSample {
 }
 
 export interface AIProviderConfig {
-  provider: 'openai' | 'anthropic' | 'deepseek' | 'perplexity';
+  provider: 'openai' | 'anthropic' | 'deepseek' | 'perplexity' | 'venice';
   model?: string;
 }
 

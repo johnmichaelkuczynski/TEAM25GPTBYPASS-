@@ -443,13 +443,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API Keys endpoint
   app.post("/api/set-keys", async (req, res) => {
     try {
-      const { openai, anthropic, deepseek, perplexity, gptzero } = req.body;
+      const { openai, anthropic, deepseek, perplexity, venice, gptzero } = req.body;
       
       // Store keys in environment variables
       if (openai) process.env.OPENAI_API_KEY = openai;
       if (anthropic) process.env.ANTHROPIC_API_KEY = anthropic;
       if (deepseek) process.env.DEEPSEEK_API_KEY = deepseek;
       if (perplexity) process.env.PERPLEXITY_API_KEY = perplexity;
+      if (venice) process.env.VENICE_API_KEY = venice;
       if (gptzero) process.env.GPTZERO_API_KEY = gptzero;
       
       console.log("🔑 API Keys updated successfully");
@@ -546,6 +547,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         case 'perplexity':
           providerName = "Zhi 4";
           break;
+        case 'venice':
+          providerName = "Zhi 5";
+          break;
       }
 
       if (context) {
@@ -595,6 +599,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
         case 'perplexity':
           response = await aiProviderService.rewriteWithPerplexity({ 
+            inputText: message,
+            customInstructions: systemInstructions
+          });
+          break;
+        case 'venice':
+          response = await aiProviderService.rewriteWithVenice({ 
             inputText: message,
             customInstructions: systemInstructions
           });

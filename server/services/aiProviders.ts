@@ -236,6 +236,45 @@ export class AIProviderService {
     }
   }
 
+  async rewriteWithVenice(params: RewriteParams): Promise<string> {
+    const prompt = buildRewritePrompt({
+      inputText: params.inputText,
+      styleText: params.styleText,
+      contentMixText: params.contentMixText,
+      selectedPresets: params.selectedPresets,
+      customInstructions: params.customInstructions,
+    });
+
+    try {
+      const response = await fetch('https://api.venice.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.VENICE_API_KEY || "default_key"}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b",
+          messages: [
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 4000,
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`Venice API error: ${response.status} ${errText}`);
+      }
+
+      const data = await response.json();
+      return this.cleanMarkup(data.choices[0].message.content || "");
+    } catch (error: any) {
+      throw new Error(`Venice API error: ${error.message}`);
+    }
+  }
+
   async rewriteWithDeepSeek(params: RewriteParams): Promise<string> {
     const prompt = buildRewritePrompt({
       inputText: params.inputText,
@@ -307,6 +346,8 @@ export class AIProviderService {
         return this.rewriteWithPerplexity(params);
       case 'deepseek':
         return this.rewriteWithDeepSeek(params);
+      case 'venice':
+        return this.rewriteWithVenice(params);
       default:
         throw new Error(`Unsupported AI provider: ${provider}`);
     }

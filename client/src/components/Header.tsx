@@ -58,6 +58,7 @@ export default function Header({ provider, onProviderChange, onShowApiKeys, onNa
                   <SelectItem value="anthropic">Zhi 2</SelectItem>
                   <SelectItem value="deepseek">Zhi 3</SelectItem>
                   <SelectItem value="perplexity">Zhi 4</SelectItem>
+                  <SelectItem value="venice">Zhi 5</SelectItem>
                 </SelectContent>
               </Select>
             </div>

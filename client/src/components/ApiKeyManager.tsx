@@ -15,6 +15,7 @@ export default function ApiKeyManager({ onKeysUpdated }: ApiKeyManagerProps) {
     anthropic: "",
     deepseek: "",
     perplexity: "",
+    venice: "",
     gptzero: ""
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,6 +100,17 @@ export default function ApiKeyManager({ onKeysUpdated }: ApiKeyManagerProps) {
             placeholder="pplx-..."
             value={keys.perplexity}
             onChange={(e) => setKeys(prev => ({ ...prev, perplexity: e.target.value }))}
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="venice">Zhi 5 API Key</Label>
+          <Input
+            id="venice"
+            type="password"
+            placeholder="..."
+            value={keys.venice}
+            onChange={(e) => setKeys(prev => ({ ...prev, venice: e.target.value }))}
           />
         </div>
 
