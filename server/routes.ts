@@ -7,72 +7,31 @@ import { textChunkerService } from "./services/textChunker";
 import { gptZeroService } from "./services/gptZero";
 import { aiProviderService } from "./services/aiProviders";
 import { documentGeneratorService } from "./services/documentGenerator";
-import { insertDocumentSchema, insertRewriteJobSchema, type RewriteRequest, type RewriteResponse, pricingTiers } from "@shared/schema";
-import { z } from "zod";
-import { setupAuth } from "./auth";
-import Stripe from "stripe";
+import type { RewriteRequest, RewriteResponse } from "@shared/schema";
 
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2025-09-30.clover" })
-  : null;
-
-// Configure multer for file uploads
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit
+    fileSize: 50 * 1024 * 1024,
   },
 });
 
 function cleanMarkup(text: string): string {
   return text
-    // Remove markdown bold/italic markers
     .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
-    // Remove markdown headers
     .replace(/^#{1,6}\s+/gm, '')
-    // Remove inline code backticks
     .replace(/`([^`]+)`/g, '$1')
-    // Remove code block markers
     .replace(/```[\s\S]*?```/g, (match) => {
       return match.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
     })
-    // Remove other common markdown symbols
-    .replace(/~~([^~]+)~~/g, '$1') // strikethrough
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
-    .replace(/>\s+/gm, '') // blockquotes
-    // Remove excessive whitespace and clean up
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/>\s+/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-function truncateForPaywall(text: string): string {
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  if (words.length === 0) return text;
-  
-  let percentage: number;
-  const wordCount = words.length;
-  
-  if (wordCount <= 50) {
-    percentage = 0.80;
-  } else if (wordCount <= 100) {
-    percentage = 0.65;
-  } else if (wordCount <= 200) {
-    percentage = 0.55;
-  } else if (wordCount <= 400) {
-    percentage = 0.45;
-  } else if (wordCount <= 600) {
-    percentage = 0.40;
-  } else {
-    percentage = 0.35;
-  }
-  
-  const wordsToShow = Math.max(1, Math.floor(wordCount * percentage));
-  return words.slice(0, wordsToShow).join(' ') + '...';
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
-  setupAuth(app);
-
   // File upload endpoint
   app.post("/api/upload", upload.single('file'), async (req, res) => {
     try {
@@ -82,29 +41,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await fileProcessorService.validateFile(req.file);
       const processedFile = await fileProcessorService.processFile(req.file.path, req.file.originalname);
-      
-      // Analyze with GPTZero
+
       const gptZeroResult = await gptZeroService.analyzeText(processedFile.content);
-      
-      // Create document record (save with userId if logged in)
+
       const document = await storage.createDocument({
         filename: processedFile.filename,
         content: processedFile.content,
         wordCount: processedFile.wordCount,
         aiScore: gptZeroResult.aiScore,
-        userId: req.user?.id,
       });
 
-      // Generate chunks if text is long enough
-      const chunks = processedFile.wordCount > 500 
+      const chunks = processedFile.wordCount > 500
         ? textChunkerService.chunkText(processedFile.content)
         : [];
 
-      // Analyze chunks if they exist
       if (chunks.length > 0) {
         const chunkTexts = chunks.map(chunk => chunk.content);
         const chunkResults = await gptZeroService.analyzeBatch(chunkTexts);
-        
         chunks.forEach((chunk, index) => {
           chunk.aiScore = chunkResults[index].aiScore;
         });
@@ -116,33 +69,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         aiScore: gptZeroResult.aiScore,
         needsChunking: processedFile.wordCount > 500,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('File upload error:', error);
       res.status(500).json({ message: error.message });
     }
   });
 
-
-  // Text analysis endpoint (for direct text input)
+  // Text analysis endpoint
   app.post("/api/analyze-text", async (req, res) => {
     try {
       const { text } = req.body;
-      
       if (!text || typeof text !== 'string') {
         return res.status(400).json({ message: "Text is required" });
       }
 
       const gptZeroResult = await gptZeroService.analyzeText(text);
       const wordCount = text.trim().split(/\s+/).length;
-      
-      // Generate chunks if text is long enough
       const chunks = wordCount > 500 ? textChunkerService.chunkText(text) : [];
-      
-      // Analyze chunks if they exist
+
       if (chunks.length > 0) {
         const chunkTexts = chunks.map(chunk => chunk.content);
         const chunkResults = await gptZeroService.analyzeBatch(chunkTexts);
-        
         chunks.forEach((chunk, index) => {
           chunk.aiScore = chunkResults[index].aiScore;
         });
@@ -154,7 +101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chunks,
         needsChunking: wordCount > 500,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Text analysis error:', error);
       res.status(500).json({ message: error.message });
     }
@@ -164,23 +111,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/rewrite", async (req, res) => {
     try {
       const rewriteRequest: RewriteRequest = req.body;
-      
-      // Validate request
       if (!rewriteRequest.inputText || !rewriteRequest.provider) {
         return res.status(400).json({ message: "Input text and provider are required" });
       }
 
-      // Get fresh user data from database to check current credit balance
-      let currentCredits = 0;
-      if (req.user) {
-        const freshUser = await storage.getUser(req.user.id);
-        currentCredits = freshUser?.credits || 0;
-      }
-
-      // Analyze input text
       const inputAnalysis = await gptZeroService.analyzeText(rewriteRequest.inputText);
-      
-      // Create rewrite job (save with userId if logged in)
+
       const rewriteJob = await storage.createRewriteJob({
         inputText: rewriteRequest.inputText,
         styleText: rewriteRequest.styleText,
@@ -193,11 +129,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mixingMode: rewriteRequest.mixingMode,
         inputAiScore: inputAnalysis.aiScore,
         status: "processing",
-        userId: req.user?.id,
       });
 
       try {
-        // Perform rewrite
         const rewrittenText = await aiProviderService.rewrite(rewriteRequest.provider, {
           inputText: rewriteRequest.inputText,
           styleText: rewriteRequest.styleText,
@@ -207,61 +141,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           mixingMode: rewriteRequest.mixingMode,
         });
 
-        // Analyze output text
         const outputAnalysis = await gptZeroService.analyzeText(rewrittenText);
-
-        // Clean markup from rewritten text
         const cleanedRewrittenText = cleanMarkup(rewrittenText);
 
-        // Calculate word count for credit deduction (use output length)
-        const outputWordCount = cleanedRewrittenText.trim().split(/\s+/).length;
-        
-        // Check if user has enough credits for full output
-        const userHasCredits = req.user && currentCredits >= outputWordCount;
-        let creditsActuallyDeducted = false;
-        
-        // Deduct credits if user has enough
-        if (userHasCredits) {
-          try {
-            await storage.deductUserCredits(req.user.id, outputWordCount);
-            creditsActuallyDeducted = true;
-          } catch (error: any) {
-            // If deduction fails, user will get truncated output
-            console.error('Credit deduction error:', error);
-          }
-        }
-
-        // Update job with results (and mark credits paid only if deduction succeeded)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
-          creditsPaid: creditsActuallyDeducted ? outputWordCount : 0,
         });
 
-        // Truncate output if credits weren't actually deducted
-        let finalRewrittenText = cleanedRewrittenText;
-        if (!creditsActuallyDeducted) {
-          finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
-        }
-
         const response: RewriteResponse = {
-          rewrittenText: finalRewrittenText,
+          rewrittenText: cleanedRewrittenText,
           inputAiScore: inputAnalysis.aiScore,
           outputAiScore: outputAnalysis.aiScore,
           jobId: rewriteJob.id,
         };
-
-        // Invalidate user query to update credits display
         res.json(response);
       } catch (error) {
-        // Update job with error status
-        await storage.updateRewriteJob(rewriteJob.id, {
-          status: "failed",
-        });
+        await storage.updateRewriteJob(rewriteJob.id, { status: "failed" });
         throw error;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Rewrite error:', error);
       res.status(500).json({ message: error.message });
     }
@@ -272,23 +172,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { jobId } = req.params;
       const { customInstructions, selectedPresets, provider } = req.body;
-      
+
       const originalJob = await storage.getRewriteJob(jobId);
       if (!originalJob || !originalJob.outputText) {
         return res.status(404).json({ message: "Original job not found or incomplete" });
       }
 
-      // Get fresh user data from database to check current credit balance
-      let currentCredits = 0;
-      if (req.user) {
-        const freshUser = await storage.getUser(req.user.id);
-        currentCredits = freshUser?.credits || 0;
-      }
-
-      // Create new rewrite job using the previous output as input (save with userId if logged in)
       const rewriteJob = await storage.createRewriteJob({
         inputText: originalJob.outputText,
-        userId: req.user?.id,
         styleText: originalJob.styleText,
         contentMixText: originalJob.contentMixText,
         customInstructions: customInstructions || originalJob.customInstructions,
@@ -302,15 +193,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       try {
-        // Debug logging for re-rewrite
-        console.log("🔥 RE-REWRITE DEBUG - Original Job ID:", jobId);
-        console.log("🔥 RE-REWRITE DEBUG - Input text (first 200 chars):", originalJob.outputText?.substring(0, 200));
-        console.log("🔥 RE-REWRITE DEBUG - Style text (first 100 chars):", originalJob.styleText?.substring(0, 100) || "none");
-        console.log("🔥 RE-REWRITE DEBUG - Provider:", provider || originalJob.provider);
-        console.log("🔥 RE-REWRITE DEBUG - Custom instructions:", customInstructions || originalJob.customInstructions || "none");
-        console.log("🔥 RE-REWRITE DEBUG - Selected presets:", selectedPresets || originalJob.selectedPresets || "none");
-        
-        // Perform re-rewrite
         const rewrittenText = await aiProviderService.rewrite(provider || originalJob.provider, {
           inputText: originalJob.outputText,
           styleText: originalJob.styleText,
@@ -320,122 +202,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           mixingMode: originalJob.mixingMode,
         });
 
-        // Analyze new output
         const outputAnalysis = await gptZeroService.analyzeText(rewrittenText);
-
-        // Clean markup from output
         const cleanedRewrittenText = cleanMarkup(rewrittenText);
 
-        // Calculate word count for credit deduction (use output length)
-        const outputWordCount = cleanedRewrittenText.trim().split(/\s+/).length;
-        
-        // Check if user has enough credits for full output
-        const userHasCredits = req.user && currentCredits >= outputWordCount;
-        let creditsActuallyDeducted = false;
-        
-        // Deduct credits if user has enough
-        if (userHasCredits) {
-          try {
-            await storage.deductUserCredits(req.user.id, outputWordCount);
-            creditsActuallyDeducted = true;
-          } catch (error: any) {
-            // If deduction fails, user will get truncated output
-            console.error('Credit deduction error:', error);
-          }
-        }
-
-        // Update job with results (and mark credits paid only if deduction succeeded)
         await storage.updateRewriteJob(rewriteJob.id, {
           outputText: cleanedRewrittenText,
           outputAiScore: outputAnalysis.aiScore,
           status: "completed",
-          creditsPaid: creditsActuallyDeducted ? outputWordCount : 0,
         });
 
-        // Truncate output if credits weren't actually deducted
-        let finalRewrittenText = cleanedRewrittenText;
-        if (!creditsActuallyDeducted) {
-          finalRewrittenText = truncateForPaywall(cleanedRewrittenText);
-        }
-
         const response: RewriteResponse = {
-          rewrittenText: finalRewrittenText,
+          rewrittenText: cleanedRewrittenText,
           inputAiScore: originalJob.outputAiScore || 0,
           outputAiScore: outputAnalysis.aiScore,
           jobId: rewriteJob.id,
         };
-
         res.json(response);
       } catch (error) {
         await storage.updateRewriteJob(rewriteJob.id, { status: "failed" });
         throw error;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Re-rewrite error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Get rewrite job status
-  app.get("/api/jobs/:jobId", async (req, res) => {
-    try {
-      const { jobId } = req.params;
-      const job = await storage.getRewriteJob(jobId);
-      
-      if (!job) {
-        return res.status(404).json({ message: "Job not found" });
-      }
-
-      // Authorization: Only allow access if user owns the job or job has no owner (guest job)
-      if (job.userId) {
-        // Job belongs to a user - must be logged in and be the owner
-        if (!req.user || req.user.id !== job.userId) {
-          return res.status(403).json({ message: "Access denied" });
-        }
-      }
-      // Guest jobs (no userId) are accessible to anyone for backward compatibility
-
-      // Check if this job was already paid for
-      const jobWasPaid = (job.creditsPaid || 0) > 0;
-      
-      // Truncate outputText if job wasn't paid for
-      if (!jobWasPaid && job.outputText) {
-        job.outputText = truncateForPaywall(job.outputText);
-      }
-
-      res.json(job);
-    } catch (error) {
-      console.error('Get job error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // List recent jobs
-  app.get("/api/jobs", async (req, res) => {
-    try {
-      const jobs = await storage.listRewriteJobs();
-      
-      // Filter jobs based on user ownership
-      const userJobs = jobs.filter(job => {
-        if (job.userId) {
-          // Job belongs to a user - only show if logged in and is the owner
-          return req.user && req.user.id === job.userId;
-        }
-        // Guest jobs (no userId) - show to everyone for backward compatibility
-        return true;
-      });
-      
-      // Truncate outputText in jobs that weren't paid for
-      userJobs.forEach(job => {
-        const jobWasPaid = (job.creditsPaid || 0) > 0;
-        if (!jobWasPaid && job.outputText) {
-          job.outputText = truncateForPaywall(job.outputText);
-        }
-      });
-      
-      res.json(userJobs);
-    } catch (error) {
-      console.error('List jobs error:', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -444,18 +232,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/set-keys", async (req, res) => {
     try {
       const { openai, anthropic, deepseek, perplexity, venice, gptzero } = req.body;
-      
-      // Store keys in environment variables
       if (openai) process.env.OPENAI_API_KEY = openai;
       if (anthropic) process.env.ANTHROPIC_API_KEY = anthropic;
       if (deepseek) process.env.DEEPSEEK_API_KEY = deepseek;
       if (perplexity) process.env.PERPLEXITY_API_KEY = perplexity;
       if (venice) process.env.VENICE_API_KEY = venice;
       if (gptzero) process.env.GPTZERO_API_KEY = gptzero;
-      
-      console.log("🔑 API Keys updated successfully");
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Set keys error:', error);
       res.status(500).json({ message: error.message });
     }
@@ -466,20 +250,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { format } = req.params;
       const { content, filename } = req.body;
-      
       if (!content || typeof content !== 'string') {
         return res.status(400).json({ message: "Content is required" });
       }
-      
       if (!['pdf', 'docx', 'txt'].includes(format)) {
-        return res.status(400).json({ message: "Invalid format. Supported: pdf, docx, txt" });
+        return res.status(400).json({ message: "Invalid format" });
       }
-      
+
       const baseFilename = filename || 'rewritten-text';
       let buffer: Buffer;
       let mimeType: string;
       let downloadFilename: string;
-      
+
       switch (format) {
         case 'pdf':
           buffer = await documentGeneratorService.generatePDF(content, baseFilename);
@@ -499,11 +281,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         default:
           return res.status(400).json({ message: "Unsupported format" });
       }
-      
+
       res.setHeader('Content-Type', mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
       res.setHeader('Content-Length', buffer.length.toString());
-      
       res.end(buffer);
     } catch (error: any) {
       console.error('Download error:', error);
@@ -515,404 +296,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/chat", async (req, res) => {
     try {
       const { message, provider, context } = req.body;
-      
       if (!message || !provider) {
         return res.status(400).json({ error: "Message and provider are required" });
       }
 
-      // Get fresh user data from database to check current credit balance
-      let currentCredits = 0;
-      if (req.user) {
-        const freshUser = await storage.getUser(req.user.id);
-        currentCredits = freshUser?.credits || 0;
-      }
-
-      console.log(`🔥 CHAT REQUEST - Provider: ${provider}, Message: "${message}"`);
-      console.log(`🔥 CHAT CONTEXT:`, context);
-
-      // Build context-aware system instructions
-      let contextInfo = "";
       let providerName = "";
-      
       switch (provider) {
-        case 'openai':
-          providerName = "Zhi 1";
-          break;
-        case 'anthropic':
-          providerName = "Zhi 2";
-          break;
-        case 'deepseek':
-          providerName = "Zhi 3";
-          break;
-        case 'perplexity':
-          providerName = "Zhi 4";
-          break;
-        case 'venice':
-          providerName = "Zhi 5";
-          break;
+        case 'openai': providerName = "Zhi 1"; break;
+        case 'anthropic': providerName = "Zhi 2"; break;
+        case 'deepseek': providerName = "Zhi 3"; break;
+        case 'perplexity': providerName = "Zhi 4"; break;
+        case 'venice': providerName = "Zhi 5"; break;
       }
 
+      let contextInfo = "";
       if (context) {
         contextInfo = "\n\nCONTEXT - You have access to the following content from the GPT Bypass text rewriting application:\n";
-        
-        if (context.inputText) {
-          contextInfo += `\nINPUT TEXT (Box A - text to be rewritten): "${context.inputText}"\n`;
-        }
-        
-        if (context.styleText) {
-          contextInfo += `\nSTYLE SAMPLE (Box B - writing style to mimic): "${context.styleText}"\n`;
-        }
-        
-        if (context.contentMixText) {
-          contextInfo += `\nCONTENT REFERENCE (Box C - content to blend/mix): "${context.contentMixText}"\n`;
-        }
-        
-        if (context.outputText) {
-          contextInfo += `\nREWRITTEN OUTPUT (Box D - current rewrite result): "${context.outputText}"\n`;
-        }
-        
-        contextInfo += `\nYou can help analyze, improve, or work with any of this content. You understand the text rewriting workflow and can provide insights about style analysis, content mixing, and rewriting strategies.`;
+        if (context.inputText) contextInfo += `\nINPUT TEXT (Box A): "${context.inputText}"\n`;
+        if (context.styleText) contextInfo += `\nSTYLE SAMPLE (Box B): "${context.styleText}"\n`;
+        if (context.contentMixText) contextInfo += `\nCONTENT REFERENCE (Box C): "${context.contentMixText}"\n`;
+        if (context.outputText) contextInfo += `\nREWRITTEN OUTPUT (Box D): "${context.outputText}"\n`;
+        contextInfo += `\nYou can help analyze, improve, or work with any of this content.`;
       }
 
-      const systemInstructions = `You are ${providerName}, a helpful AI assistant integrated into a GPT Bypass text rewriting application. Answer the user's question directly and clearly. If asked which LLM you are, respond that you are ${providerName}.${contextInfo}`;
+      const systemInstructions = `You are ${providerName}, a helpful AI assistant integrated into a GPT Bypass text rewriting application. Answer the user's question directly. If asked which LLM you are, respond that you are ${providerName}.${contextInfo}`;
 
       let response: string;
-      
       switch (provider) {
         case 'openai':
-          response = await aiProviderService.rewriteWithOpenAI({ 
-            inputText: message,
-            customInstructions: systemInstructions
-          });
+          response = await aiProviderService.rewriteWithOpenAI({ inputText: message, customInstructions: systemInstructions });
           break;
         case 'anthropic':
-          response = await aiProviderService.rewriteWithAnthropic({ 
-            inputText: message,
-            customInstructions: systemInstructions
-          });
+          response = await aiProviderService.rewriteWithAnthropic({ inputText: message, customInstructions: systemInstructions });
           break;
         case 'deepseek':
-          response = await aiProviderService.rewriteWithDeepSeek({ 
-            inputText: message,
-            customInstructions: systemInstructions
-          });
+          response = await aiProviderService.rewriteWithDeepSeek({ inputText: message, customInstructions: systemInstructions });
           break;
         case 'perplexity':
-          response = await aiProviderService.rewriteWithPerplexity({ 
-            inputText: message,
-            customInstructions: systemInstructions
-          });
+          response = await aiProviderService.rewriteWithPerplexity({ inputText: message, customInstructions: systemInstructions });
           break;
         case 'venice':
-          response = await aiProviderService.rewriteWithVenice({ 
-            inputText: message,
-            customInstructions: systemInstructions
-          });
+          response = await aiProviderService.rewriteWithVenice({ inputText: message, customInstructions: systemInstructions });
           break;
         default:
           return res.status(400).json({ error: "Invalid provider" });
       }
 
-      console.log(`🔥 CHAT RESPONSE - Length: ${response?.length || 0}`);
-      
-      // Clean markup from response
-      const cleanedResponse = cleanMarkup(response);
-      
-      // Calculate word count for credit deduction (use output length)
-      const outputWordCount = cleanedResponse.trim().split(/\s+/).length;
-      
-      // Check if user has enough credits for full output
-      const userHasCredits = req.user && currentCredits >= outputWordCount;
-      let creditsActuallyDeducted = false;
-      
-      // Deduct credits if user has enough
-      if (userHasCredits) {
-        try {
-          await storage.deductUserCredits(req.user.id, outputWordCount);
-          creditsActuallyDeducted = true;
-        } catch (error: any) {
-          // If deduction fails, user will get truncated output
-          console.error('Credit deduction error:', error);
-        }
-      }
-      
-      // Truncate response if credits weren't actually deducted (paywall)
-      let finalResponse = cleanedResponse;
-      if (!creditsActuallyDeducted) {
-        finalResponse = truncateForPaywall(cleanedResponse);
-      }
-      
-      res.json({ response: finalResponse });
+      res.json({ response: cleanMarkup(response) });
     } catch (error: any) {
       console.error('Chat error:', error);
-      res.status(500).json({ 
-        error: `Chat API Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        details: error instanceof Error ? error.toString() : String(error)
-      });
+      res.status(500).json({ error: `Chat API Error: ${error?.message || 'Unknown error'}` });
     }
-  });
-
-  // Get user's saved materials
-  app.get("/api/user/materials", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const [documents, rewriteJobs] = await Promise.all([
-        storage.getUserDocuments(req.user.id),
-        storage.getUserRewriteJobs(req.user.id)
-      ]);
-
-      // Truncate outputText in jobs that weren't paid for
-      rewriteJobs.forEach(job => {
-        const jobWasPaid = (job.creditsPaid || 0) > 0;
-        if (!jobWasPaid && job.outputText) {
-          job.outputText = truncateForPaywall(job.outputText);
-        }
-      });
-
-      res.json({
-        documents,
-        rewriteJobs
-      });
-    } catch (error: any) {
-      console.error('Get materials error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Get pricing tiers
-  app.get("/api/pricing", (req, res) => {
-    res.json(pricingTiers);
-  });
-
-  // Create Stripe payment intent
-  app.post("/api/create-payment-intent", async (req, res) => {
-    try {
-      if (!stripe) {
-        return res.status(503).json({ message: "Payment processing is not configured" });
-      }
-      console.log('=== PAYMENT INTENT REQUEST ===');
-      console.log('User:', req.user?.username, req.user?.id);
-      
-      if (!req.isAuthenticated() || !req.user) {
-        console.log('Not authenticated');
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const { tierId } = req.body;
-      console.log('Requested tier:', tierId);
-      
-      const tier = pricingTiers.find(t => t.id === tierId);
-
-      if (!tier) {
-        console.log('Invalid tier');
-        return res.status(400).json({ message: "Invalid pricing tier" });
-      }
-
-      let stripeCustomerId = req.user.stripeCustomerId;
-      
-      if (!stripeCustomerId) {
-        console.log('Creating new Stripe customer...');
-        const customer = await stripe.customers.create({
-          metadata: {
-            userId: req.user.id,
-            username: req.user.username,
-          },
-        });
-        stripeCustomerId = customer.id;
-        await storage.updateStripeCustomerId(req.user.id, stripeCustomerId);
-        console.log('Created customer:', stripeCustomerId);
-      } else {
-        console.log('Using existing customer:', stripeCustomerId);
-      }
-
-      console.log('Creating payment intent:', {
-        amount: tier.priceUsd * 100,
-        customer: stripeCustomerId,
-        credits: tier.credits
-      });
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: tier.priceUsd * 100,
-        currency: "usd",
-        customer: stripeCustomerId,
-        metadata: {
-          userId: req.user.id,
-          tierId: tier.id,
-          credits: tier.credits.toString(),
-        },
-      });
-
-      console.log('Payment intent created:', paymentIntent.id);
-      console.log('Client secret sent to frontend');
-
-      res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (error: any) {
-      console.error('Payment intent error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Verify payment and add credits (fallback for when webhooks aren't configured)
-  app.post("/api/verify-payment", async (req, res) => {
-    try {
-      if (!stripe) {
-        return res.status(503).json({ message: "Payment processing is not configured" });
-      }
-      if (!req.isAuthenticated() || !req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const { paymentIntentId } = req.body;
-      
-      if (!paymentIntentId) {
-        return res.status(400).json({ message: "Payment intent ID required" });
-      }
-
-      console.log('=== VERIFYING PAYMENT ===');
-      console.log('Payment Intent ID:', paymentIntentId);
-      console.log('User:', req.user.id);
-
-      // Check if payment already processed (idempotency)
-      const existingPayment = await storage.getPaymentByStripeId(paymentIntentId);
-      if (existingPayment) {
-        console.log('Payment already processed, returning existing credits');
-        const user = await storage.getUser(req.user.id);
-        return res.json({
-          success: true,
-          creditsAdded: existingPayment.credits,
-          newBalance: user?.credits || 0,
-          alreadyProcessed: true
-        });
-      }
-
-      // Retrieve payment intent from Stripe to verify it succeeded
-      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-      
-      console.log('Payment Intent Status:', paymentIntent.status);
-      console.log('Payment Intent Metadata:', paymentIntent.metadata);
-
-      if (paymentIntent.status !== 'succeeded') {
-        return res.status(400).json({ message: `Payment not successful. Status: ${paymentIntent.status}` });
-      }
-
-      // Verify this payment belongs to the authenticated user
-      if (paymentIntent.metadata.userId !== req.user.id) {
-        return res.status(403).json({ message: "Payment does not belong to this user" });
-      }
-
-      const credits = parseInt(paymentIntent.metadata.credits || '0');
-      
-      if (!credits) {
-        return res.status(400).json({ message: "No credits amount in payment metadata" });
-      }
-
-      // Process payment and add credits atomically in a transaction
-      try {
-        const result = await storage.processPaymentWithCredits({
-          stripePaymentIntentId: paymentIntentId,
-          userId: req.user.id,
-          credits,
-          amount: paymentIntent.amount,
-          status: 'succeeded'
-        });
-
-        console.log(`✅ Payment processed: added ${credits} credits to user ${req.user.id}. New balance: ${result.user.credits}`);
-
-        res.json({ 
-          success: true, 
-          creditsAdded: credits,
-          newBalance: result.user.credits
-        });
-      } catch (error: any) {
-        // If this fails due to unique constraint, payment was already processed
-        if (error.message?.includes('unique') || error.code === '23505') {
-          console.log('Payment already processed by concurrent request');
-          const user = await storage.getUser(req.user.id);
-          return res.json({
-            success: true,
-            creditsAdded: credits,
-            newBalance: user?.credits || 0,
-            alreadyProcessed: true
-          });
-        }
-        throw error;
-      }
-    } catch (error: any) {
-      console.error('Payment verification error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Stripe webhook handler (for production when webhooks are configured)
-  app.post("/api/webhooks/stripe", async (req, res) => {
-    console.log('=== STRIPE WEBHOOK RECEIVED ===');
-    const sig = req.headers['stripe-signature'];
-    
-    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-      console.log('Webhook signature or secret missing');
-      return res.status(400).send('Webhook signature missing');
-    }
-
-    let event: Stripe.Event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-      console.log('Webhook event verified:', event.type);
-    } catch (err: any) {
-      console.error('Webhook signature verification failed:', err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === 'payment_intent.succeeded') {
-      console.log('Payment intent succeeded event');
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
-      const { userId, credits } = paymentIntent.metadata;
-      console.log('Metadata:', { userId, credits });
-
-      if (userId && credits) {
-        try {
-          // Check if payment already processed (idempotency)
-          const existingPayment = await storage.getPaymentByStripeId(paymentIntent.id);
-          if (existingPayment) {
-            console.log('Payment already processed by webhook, skipping');
-            return res.json({ received: true, alreadyProcessed: true });
-          }
-
-          // Process payment and add credits atomically in a transaction
-          try {
-            const result = await storage.processPaymentWithCredits({
-              stripePaymentIntentId: paymentIntent.id,
-              userId,
-              credits: parseInt(credits),
-              amount: paymentIntent.amount,
-              status: 'succeeded'
-            });
-            console.log(`✅ Webhook processed: added ${credits} credits to user ${userId}. New balance: ${result.user.credits}`);
-          } catch (error: any) {
-            if (error.message?.includes('unique') || error.code === '23505') {
-              console.log('Payment already processed by concurrent request (webhook)');
-            } else {
-              console.log('Error processing payment:', error.message);
-            }
-          }
-        } catch (error: any) {
-          console.error('Error updating credits:', error);
-        }
-      } else {
-        console.log('Missing userId or credits in metadata');
-      }
-    } else {
-      console.log('Ignoring event type:', event.type);
-    }
-
-    res.json({ received: true });
   });
 
   const httpServer = createServer(app);

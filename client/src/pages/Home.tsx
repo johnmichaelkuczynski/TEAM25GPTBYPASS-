@@ -3,63 +3,17 @@ import Header from "@/components/Header";
 import LeftSidebar from "@/components/LeftSidebar";
 import TextBox from "@/components/TextBox";
 import CustomInstructions from "@/components/CustomInstructions";
-
 import ChunkSelectionModal from "@/components/ChunkSelectionModal";
 import DownloadModal from "@/components/DownloadModal";
 import ChatInterface from "@/components/ChatInterface";
 import ApiKeyManager from "@/components/ApiKeyManager";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { writingSamples } from "@/lib/writingSamples";
 import type { TextChunk, RewriteRequest, RewriteResponse } from "@shared/schema";
-import { Button } from "@/components/ui/button";
-import { Lock } from "lucide-react";
-import { Link } from "wouter";
-
-// LocalStorage key for persisting rewrite state across Stripe redirect
-const REWRITE_STATE_KEY = 'gptbypass_rewrite_state';
-
-interface RewriteState {
-  provider: string;
-  inputText: string;
-  styleText: string;
-  outputText: string;
-  customInstructions: string;
-  selectedPresets: string[];
-  selectedStyleSample: string;
-  contentMixText: string;
-  mixingMode: 'style' | 'content' | 'both';
-  inputAiScore: number | null;
-  styleAiScore: number | null;
-  outputAiScore: number | null;
-  lastJobId: string | null;
-}
-
-function saveRewriteState(state: RewriteState) {
-  try {
-    localStorage.setItem(REWRITE_STATE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.error('Failed to save rewrite state:', error);
-  }
-}
-
-function loadRewriteState(): RewriteState | null {
-  try {
-    const saved = localStorage.getItem(REWRITE_STATE_KEY);
-    if (saved) {
-      localStorage.removeItem(REWRITE_STATE_KEY); // Clear after loading
-      return JSON.parse(saved);
-    }
-  } catch (error) {
-    console.error('Failed to load rewrite state:', error);
-  }
-  return null;
-}
 
 export default function Home() {
-  const { user } = useAuth();
   const [provider, setProvider] = useState<string>("anthropic");
   const [inputText, setInputText] = useState("");
   const [styleText, setStyleText] = useState("");
@@ -68,50 +22,23 @@ export default function Home() {
   const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
   const [selectedStyleSample, setSelectedStyleSample] = useState<string>("");
   const [showApiKeyManager, setShowApiKeyManager] = useState(false);
-  
-  // Content mixing state
+
   const [contentMixText, setContentMixText] = useState("");
   const [mixingMode, setMixingMode] = useState<'style' | 'content' | 'both'>('style');
-  
-  // AI Detection scores
+
   const [inputAiScore, setInputAiScore] = useState<number | null>(null);
   const [styleAiScore, setStyleAiScore] = useState<number | null>(null);
   const [outputAiScore, setOutputAiScore] = useState<number | null>(null);
-  
-  // Chunking state
+
   const [inputChunks, setInputChunks] = useState<TextChunk[]>([]);
   const [selectedChunkIds, setSelectedChunkIds] = useState<string[]>([]);
   const [showChunkModal, setShowChunkModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  
-  // Processing state
+
   const [lastJobId, setLastJobId] = useState<string | null>(null);
-  
+
   const { toast } = useToast();
 
-  // Helper function to check if user should see full output
-  const canViewFullOutput = () => {
-    if (!user) return false; // Not logged in
-    return (user.credits || 0) > 0; // Has credits
-  };
-
-  // Helper function to get display text (full or truncated)
-  const getDisplayText = (fullText: string) => {
-    if (!fullText) return "";
-    if (canViewFullOutput()) return fullText;
-    
-    // Show half the output for users without credits or not logged in
-    const words = fullText.split(/\s+/).filter(w => w.length > 0);
-    if (words.length === 0) return "";
-    
-    // Ensure at least 1 word is shown, then take half
-    const halfLength = Math.max(1, Math.ceil(words.length / 2));
-    return words.slice(0, halfLength).join(' ') + '...';
-  };
-
-  const isOutputTruncated = outputText && !canViewFullOutput();
-
-  // Set default style sample on component mount
   useEffect(() => {
     const defaultSample = writingSamples.find(sample => sample.id === "formal-functional-relationships");
     if (defaultSample && !selectedStyleSample) {
@@ -120,38 +47,9 @@ export default function Home() {
     }
   }, []);
 
-  // Restore state after Stripe redirect
-  useEffect(() => {
-    const savedState = loadRewriteState();
-    if (savedState) {
-      setProvider(savedState.provider);
-      setInputText(savedState.inputText);
-      setStyleText(savedState.styleText);
-      setOutputText(savedState.outputText);
-      setCustomInstructions(savedState.customInstructions);
-      setSelectedPresets(savedState.selectedPresets);
-      setSelectedStyleSample(savedState.selectedStyleSample);
-      setContentMixText(savedState.contentMixText);
-      setMixingMode(savedState.mixingMode);
-      setInputAiScore(savedState.inputAiScore);
-      setStyleAiScore(savedState.styleAiScore);
-      setOutputAiScore(savedState.outputAiScore);
-      setLastJobId(savedState.lastJobId);
-      
-      toast({
-        title: "Rewrite Restored",
-        description: "Your previous rewrite has been restored after payment.",
-      });
-    }
-  }, []);
-
-  // Text analysis mutation
   const analyzeTextMutation = useMutation({
     mutationFn: async (text: string) => {
-      return await apiRequest("/api/analyze-text", {
-        method: "POST",
-        body: { text }
-      });
+      return await apiRequest("/api/analyze-text", { method: "POST", body: { text } });
     },
     onSuccess: (data, text) => {
       if (text === inputText) {
@@ -164,44 +62,29 @@ export default function Home() {
         setStyleAiScore(data.aiScore);
       }
     },
-    onError: (error) => {
-      toast({
-        title: "Analysis Error",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      toast({ title: "Analysis Error", description: error.message, variant: "destructive" });
     },
   });
 
-  // Rewrite mutation
   const rewriteMutation = useMutation({
     mutationFn: async (request: RewriteRequest) => {
-      return await apiRequest("/api/rewrite", {
-        method: "POST",
-        body: request
-      }) as Promise<RewriteResponse>;
+      return await apiRequest("/api/rewrite", { method: "POST", body: request }) as Promise<RewriteResponse>;
     },
     onSuccess: (data) => {
-      // Backend already truncates based on credits, just store what we receive
       setOutputText(data.rewrittenText);
       setOutputAiScore(data.outputAiScore);
       setLastJobId(data.jobId);
-      queryClient.invalidateQueries({ queryKey: ['/api/user'] });
       toast({
         title: "Rewrite Complete",
         description: `AI detection reduced from ${data.inputAiScore}% to ${data.outputAiScore}%`,
       });
     },
-    onError: (error) => {
-      toast({
-        title: "Rewrite Error",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      toast({ title: "Rewrite Error", description: error.message, variant: "destructive" });
     },
   });
 
-  // Re-rewrite mutation
   const reRewriteMutation = useMutation({
     mutationFn: async (params: { jobId: string; customInstructions?: string; selectedPresets?: string[]; provider?: string }) => {
       return await apiRequest(`/api/re-rewrite/${params.jobId}`, {
@@ -214,21 +97,13 @@ export default function Home() {
       }) as Promise<RewriteResponse>;
     },
     onSuccess: (data) => {
-      // Backend already truncates based on credits, just store what we receive
       setOutputText(data.rewrittenText);
       setOutputAiScore(data.outputAiScore);
       setLastJobId(data.jobId);
-      toast({
-        title: "Re-rewrite Complete",
-        description: `AI detection score: ${data.outputAiScore}%`,
-      });
+      toast({ title: "Re-rewrite Complete", description: `AI detection score: ${data.outputAiScore}%` });
     },
-    onError: (error) => {
-      toast({
-        title: "Re-rewrite Error",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      toast({ title: "Re-rewrite Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -256,40 +131,15 @@ export default function Home() {
     handleStyleTextChange(content);
   };
 
-  const handleStyleUpload = (content: string, type: 'style' | 'content') => {
-    if (type === 'style') {
-      setStyleText(content);
-      if (content.trim()) {
-        analyzeTextMutation.mutate(content);
-      }
-      setMixingMode('style');
-    } else {
-      setContentMixText(content);
-      setMixingMode(contentMixText ? 'both' : 'content');
-    }
-    
-    toast({
-      title: "Upload Complete",
-      description: `${type === 'style' ? 'Style sample' : 'Content reference'} has been added successfully.`,
-    });
-  };
-
   const handleGenerateRewrite = () => {
     if (!inputText.trim()) {
-      toast({
-        title: "Input Required",
-        description: "Please provide input text to rewrite",
-        variant: "destructive",
-      });
+      toast({ title: "Input Required", description: "Please provide input text to rewrite", variant: "destructive" });
       return;
     }
 
     const request: RewriteRequest = {
       inputText: inputChunks.length > 0 && selectedChunkIds.length > 0
-        ? inputChunks
-            .filter(chunk => selectedChunkIds.includes(chunk.id))
-            .map(chunk => chunk.content)
-            .join('\n\n')
+        ? inputChunks.filter(chunk => selectedChunkIds.includes(chunk.id)).map(chunk => chunk.content).join('\n\n')
         : inputText,
       styleText: styleText.trim() || undefined,
       contentMixText: contentMixText.trim() || undefined,
@@ -305,14 +155,9 @@ export default function Home() {
 
   const handleReRewrite = () => {
     if (!lastJobId) {
-      toast({
-        title: "No Previous Job",
-        description: "Generate a rewrite first",
-        variant: "destructive",
-      });
+      toast({ title: "No Previous Job", description: "Generate a rewrite first", variant: "destructive" });
       return;
     }
-
     reRewriteMutation.mutate({
       jobId: lastJobId,
       customInstructions: customInstructions.trim() || undefined,
@@ -339,10 +184,7 @@ export default function Home() {
     setSelectedChunkIds([]);
     setLastJobId(null);
     setSelectedPresets([]);
-    toast({
-      title: "Cleared",
-      description: "All content has been cleared successfully.",
-    });
+    toast({ title: "Cleared", description: "All content has been cleared successfully." });
   };
 
   const isProcessing = rewriteMutation.isPending || reRewriteMutation.isPending;
@@ -352,10 +194,7 @@ export default function Home() {
       <div className="min-h-screen bg-gray-50 font-inter p-8">
         <div className="max-w-4xl mx-auto">
           <div className="mb-6">
-            <button 
-              onClick={() => setShowApiKeyManager(false)}
-              className="text-blue-600 hover:text-blue-800 flex items-center"
-            >
+            <button onClick={() => setShowApiKeyManager(false)} className="text-blue-600 hover:text-blue-800 flex items-center">
               <i className="fas fa-arrow-left mr-2"></i>
               Back to App
             </button>
@@ -366,34 +205,14 @@ export default function Home() {
     );
   }
 
-  // Function to save state before navigating to pricing
-  const handleNavigateToPricing = () => {
-    saveRewriteState({
-      provider,
-      inputText,
-      styleText,
-      outputText,
-      customInstructions,
-      selectedPresets,
-      selectedStyleSample,
-      contentMixText,
-      mixingMode,
-      inputAiScore,
-      styleAiScore,
-      outputAiScore,
-      lastJobId,
-    });
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 font-inter">
-      <Header 
-        provider={provider} 
+      <Header
+        provider={provider}
         onProviderChange={setProvider}
         onShowApiKeys={() => setShowApiKeyManager(true)}
-        onNavigateToPricing={handleNavigateToPricing}
       />
-      
+
       <div className="flex h-screen pt-16">
         <LeftSidebar
           selectedPresets={selectedPresets}
@@ -406,7 +225,7 @@ export default function Home() {
             toast({ description: "Writing sample sent to Content Box successfully!" });
           }}
         />
-        
+
         <main className="flex-1 overflow-y-auto">
           <div className="p-6">
             <div className="grid grid-cols-4 gap-4 mb-6" style={{ height: '65%' }}>
@@ -433,7 +252,7 @@ export default function Home() {
                 onEnterSubmit={handleGenerateRewrite}
                 canSubmit={!!inputText.trim()}
               />
-              
+
               <TextBox
                 title="Style Sample (Box B)"
                 icon="fas fa-palette"
@@ -450,7 +269,7 @@ export default function Home() {
                 onEnterSubmit={handleGenerateRewrite}
                 canSubmit={!!inputText.trim()}
               />
-              
+
               <TextBox
                 title="Content Reference (Box C)"
                 icon="fas fa-layer-group"
@@ -469,61 +288,28 @@ export default function Home() {
                 onEnterSubmit={handleGenerateRewrite}
                 canSubmit={!!inputText.trim()}
               />
-              
-              <div className="relative">
-                <TextBox
-                  title="Rewritten Output (Box D)"
-                  icon="fas fa-download"
-                  placeholder="Rewritten text will appear here..."
-                  value={outputText}
-                  onChange={() => {}} // Read-only
-                  aiScore={outputAiScore}
-                  isLoading={isProcessing}
-                  readOnly
-                  showReRewrite
-                  onReRewrite={handleReRewrite}
-                  canReRewrite={!!lastJobId && !isProcessing}
-                  onDownload={() => setShowDownloadModal(true)}
-                  onClear={() => {
-                    setOutputText("");
-                    setOutputAiScore(null);
-                    setLastJobId(null);
-                  }}
-                />
-                
-                {/* Paywall Banner */}
-                {isOutputTruncated && (
-                  <Link href="/pricing" onClick={handleNavigateToPricing}>
-                    <div className="mt-4 p-6 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg shadow-lg cursor-pointer hover:shadow-xl transition-shadow" data-testid="paywall-banner">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <Lock className="h-6 w-6 text-blue-600" />
-                          <div>
-                            <h3 className="text-lg font-bold text-blue-900">
-                              {!user ? "Login to See Full Output" : "Get Credits to See Full Output"}
-                            </h3>
-                            <p className="text-sm text-blue-700 mt-1">
-                              {!user 
-                                ? "You're seeing a preview of the output. Create an account or log in to access the full rewritten text."
-                                : "You're seeing a preview of the output. Purchase credits to unlock the complete rewritten text."}
-                            </p>
-                          </div>
-                        </div>
-                        <Button 
-                          size="lg" 
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8"
-                          data-testid="button-unlock-output"
-                        >
-                          {!user ? "Login / Sign Up" : "Buy Credits"}
-                        </Button>
-                      </div>
-                    </div>
-                  </Link>
-                )}
-              </div>
+
+              <TextBox
+                title="Rewritten Output (Box D)"
+                icon="fas fa-download"
+                placeholder="Rewritten text will appear here..."
+                value={outputText}
+                onChange={() => {}}
+                aiScore={outputAiScore}
+                isLoading={isProcessing}
+                readOnly
+                showReRewrite
+                onReRewrite={handleReRewrite}
+                canReRewrite={!!lastJobId && !isProcessing}
+                onDownload={() => setShowDownloadModal(true)}
+                onClear={() => {
+                  setOutputText("");
+                  setOutputAiScore(null);
+                  setLastJobId(null);
+                }}
+              />
             </div>
 
-            {/* Main Controls */}
             <CustomInstructions
               value={customInstructions}
               onChange={setCustomInstructions}
@@ -536,24 +322,13 @@ export default function Home() {
               onClearAll={handleClearAll}
             />
 
-            {/* Chat Interface */}
             <div className="mt-8 mb-8">
-              <ChatInterface 
+              <ChatInterface
                 inputText={inputText}
                 styleText={styleText}
                 contentMixText={contentMixText}
                 outputText={outputText}
                 onSendToBox={(boxId, text) => {
-                  // Block sending to output box without credits
-                  if (boxId === 'output' && !canViewFullOutput()) {
-                    toast({
-                      title: "Credits Required",
-                      description: "You need to purchase credits or log in to send text to the output box.",
-                      variant: "destructive",
-                    });
-                    return;
-                  }
-
                   switch (boxId) {
                     case 'input':
                       setInputText(text);

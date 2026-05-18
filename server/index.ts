@@ -5,8 +5,6 @@ import pdfRouter from "./routes/pdf";
 
 const app = express();
 
-app.use("/api/webhooks/stripe", express.raw({ type: 'application/json' }));
-
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
