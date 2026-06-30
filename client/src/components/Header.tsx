@@ -40,6 +40,11 @@ export default function Header({ provider, onProviderChange, onShowApiKeys }: He
             >
               <i className="fas fa-key mr-2"></i>API Keys
             </Button>
+            <a href="mailto:zhi@zhisystems.org" data-testid="link-contact">
+              <Button variant="outline" size="sm">
+                <i className="fas fa-envelope mr-2"></i>Contact Us
+              </Button>
+            </a>
           </div>
         </div>
       </div>
